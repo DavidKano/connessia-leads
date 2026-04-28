@@ -778,21 +778,32 @@ function CampaignsScreen({
     openQueueItem(next);
   }
 
-  function markQueueItemSent(item: QueueItem) {
+  function markQueueItemSent(item: QueueItem, openNext = false) {
     const sentAt = new Date().toISOString();
+    let nextQueue = state.queue.map((candidate) =>
+      candidate.id === item.id
+        ? {
+            ...candidate,
+            status: "sent" as const,
+            sentAt,
+            providerMessageId: `whatsapp_web_${item.id}`
+          }
+        : candidate
+    );
+    const nextPending = openNext ? nextQueue.find((candidate) => candidate.id !== item.id && candidate.status === "pending") : undefined;
+    if (nextPending) {
+      openWhatsAppWebComposer(nextPending.phone, nextPending.body);
+      nextQueue = nextQueue.map((candidate) =>
+        candidate.id === nextPending.id
+          ? { ...candidate, status: "processing" as const, errorMessage: "Chat abierto en WhatsApp Web. Confirma el envío manualmente." }
+          : candidate
+      );
+    }
+
     updateState(
       {
         ...state,
-        queue: state.queue.map((candidate) =>
-          candidate.id === item.id
-            ? {
-                ...candidate,
-                status: "sent",
-                sentAt,
-                providerMessageId: `whatsapp_web_${item.id}`
-              }
-            : candidate
-        ),
+        queue: nextQueue,
         messages: [
           ...state.messages,
           {
@@ -814,7 +825,32 @@ function CampaignsScreen({
             : lead
         )
       },
-      "Mensaje marcado como enviado."
+      nextPending ? `Mensaje enviado. Siguiente chat abierto para ${nextPending.phone}.` : "Mensaje marcado como enviado."
+    );
+  }
+
+  function registerQueueReply(item: QueueItem, reply: string, openFollowup = true) {
+    const result = handleIncomingReply(state, item.leadId, reply);
+    let nextState = result.state as typeof state;
+    const followup = openFollowup
+      ? nextState.queue.find((candidate) => candidate.leadId === item.leadId && candidate.status === "pending")
+      : undefined;
+
+    if (followup) {
+      openWhatsAppWebComposer(followup.phone, followup.body);
+      nextState = {
+        ...nextState,
+        queue: nextState.queue.map((candidate) =>
+          candidate.id === followup.id
+            ? { ...candidate, status: "processing", errorMessage: "Seguimiento abierto en WhatsApp Web." }
+            : candidate
+        )
+      };
+    }
+
+    updateState(
+      nextState,
+      followup ? `${result.notice} Seguimiento abierto para el mismo lead.` : result.notice
     );
   }
 
@@ -885,32 +921,57 @@ function CampaignsScreen({
         </Card>
         <Card className="p-5">
           <h3 className="mb-4 text-lg font-bold text-slate-950">Cola de envíos</h3>
+          <div className="mb-4 grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-md bg-slate-50 p-2"><strong className="block text-base text-slate-950">{state.queue.filter((item) => item.status === "pending").length}</strong>Pendientes</div>
+            <div className="rounded-md bg-blue-50 p-2"><strong className="block text-base text-blue-900">{state.queue.filter((item) => item.status === "processing").length}</strong>Abiertos</div>
+            <div className="rounded-md bg-emerald-50 p-2"><strong className="block text-base text-emerald-900">{state.queue.filter((item) => item.status === "sent").length}</strong>Enviados</div>
+          </div>
+          <div className="mb-4 rounded-lg border border-connessia-200 bg-connessia-50 p-3 text-sm text-connessia-900">
+            Flujo recomendado: abre un chat, pulsa Enviado y siguiente, y cuando respondan usa SI/NO/BAJA sobre el mensaje enviado.
+          </div>
           <div className="space-y-3">
             {state.queue.slice(0, 8).map((item) => (
               <div key={item.id} className="rounded-md border border-slate-200 p-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
-                  <strong>{item.phone}</strong>
+                  <div>
+                    <strong>{state.leads.find((lead) => lead.id === item.leadId)?.nombreNegocio ?? item.phone}</strong>
+                    <p className="text-xs text-slate-500">{item.phone}</p>
+                  </div>
                   <Badge value={item.status} />
                 </div>
                 <p className="mt-1 line-clamp-2 text-slate-600">{item.body}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <a
-                    className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-connessia-300 hover:text-connessia-800"
-                    href={buildWhatsAppWebUrl(item.phone, item.body)}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      openQueueItem(item);
-                    }}
-                  >
-                    <ExternalLink size={14} />
-                    Abrir chat
-                  </a>
+                  {item.status !== "sent" && (
+                    <a
+                      className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-connessia-300 hover:text-connessia-800"
+                      href={buildWhatsAppWebUrl(item.phone, item.body)}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        openQueueItem(item);
+                      }}
+                    >
+                      <ExternalLink size={14} />
+                      Abrir chat
+                    </a>
+                  )}
                   {item.status !== "sent" && (
                     <Button variant="secondary" icon={<ClipboardCheck size={16} />} onClick={() => markQueueItemSent(item)}>
                       Marcar enviado
                     </Button>
+                  )}
+                  {item.status !== "sent" && (
+                    <Button icon={<Send size={16} />} onClick={() => markQueueItemSent(item, true)}>
+                      Enviado y siguiente
+                    </Button>
+                  )}
+                  {item.status === "sent" && (
+                    <>
+                      <Button variant="secondary" onClick={() => registerQueueReply(item, "SI")}>Respuesta SI</Button>
+                      <Button variant="secondary" onClick={() => registerQueueReply(item, "NO", false)}>Respuesta NO</Button>
+                      <Button variant="danger" onClick={() => registerQueueReply(item, "BAJA", false)}>BAJA</Button>
+                    </>
                   )}
                 </div>
               </div>

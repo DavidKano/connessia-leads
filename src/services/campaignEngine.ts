@@ -67,7 +67,16 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
   const blockedReasons = selectedLeads
     .map((lead) => ({ lead, reason: canSendToLead(lead, state.doNotContact) }))
     .filter((item): item is { lead: Lead; reason: string } => Boolean(item.reason));
-  const targetLeads = selectedLeads.filter((lead) => !canSendToLead(lead, state.doNotContact));
+  const sendableLeads = selectedLeads.filter((lead) => !canSendToLead(lead, state.doNotContact));
+  const alreadyHandledLeadIds = new Set([
+    ...state.queue
+      .filter((item) => item.campaignId === campaign.id && ["pending", "processing", "sent"].includes(item.status))
+      .map((item) => item.leadId),
+    ...state.messages
+      .filter((message) => message.campaignId === campaign.id && message.direction === "outbound" && message.status === "sent")
+      .map((message) => message.leadId)
+  ]);
+  const targetLeads = sendableLeads.filter((lead) => !alreadyHandledLeadIds.has(lead.id));
 
   if (selectedLeads.length > 0 && targetLeads.length === 0) {
     const firstReason = blockedReasons[0];
@@ -75,7 +84,9 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
       state,
       notice: firstReason
         ? `0 mensajes preparados. ${firstReason.lead.nombreNegocio}: ${firstReason.reason}`
-        : "0 mensajes preparados. Revisa consentimiento, teléfono o lista de exclusión."
+        : sendableLeads.length > 0
+          ? "0 mensajes nuevos. Esos leads ya tienen mensaje preparado o enviado en esta campaña."
+          : "0 mensajes preparados. Revisa consentimiento, teléfono o lista de exclusión."
     };
   }
 
@@ -212,7 +223,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
             id: uid("queue"),
             leadId,
             campaignId: campaign?.id,
-            phone: lead.telefono,
+            phone: normalizePhone(lead.telefono),
             messageType: "text",
             body: infoBody,
             status: "pending",
@@ -225,7 +236,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
                   id: uid("queue"),
                   leadId,
                   campaignId: campaign?.id,
-                  phone: lead.telefono,
+                  phone: normalizePhone(lead.telefono),
                   messageType: "media" as const,
                   body: "Demo visual Connessia",
                   mediaUrl: asset.url,
@@ -263,7 +274,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
             ...state.doNotContact,
             {
               id: uid("dnc"),
-              phone: lead.telefono,
+              phone: normalizePhone(lead.telefono),
               email: lead.email,
               reason: `Respuesta: ${body}`,
               source: "respuesta_whatsapp",
@@ -294,7 +305,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
           {
             id: uid("queue"),
             leadId,
-            phone: lead.telefono,
+            phone: normalizePhone(lead.telefono),
             messageType: "text",
             body: bajaBody,
             status: "pending",
