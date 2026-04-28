@@ -183,7 +183,7 @@ export async function processQueue(state: EngineState, maxItems = 10): Promise<E
   return { state: nextState, notice: `${pending.length} mensajes procesados en modo local.` };
 }
 
-export function handleIncomingReply(state: EngineState, leadId: string, body: string): EngineResult {
+export function handleIncomingReply(state: EngineState, leadId: string, body: string, campaignId?: string): EngineResult {
   const lead = state.leads.find((item) => item.id === leadId);
   if (!lead) return { state, notice: "Lead no encontrado." };
 
@@ -192,6 +192,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
   const inbound: Message = {
     id: uid("msg"),
     leadId,
+    campaignId,
     direction: "inbound",
     channel: "whatsapp",
     body,
@@ -199,14 +200,18 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
     createdAt: now
   };
 
+  const campaign = campaignId
+    ? state.campaigns.find((item) => item.id === campaignId)
+    : state.campaigns[0];
   const templates = {
-    info: state.templates.find((template) => template.tipo === "plantilla_info" && template.estado === "aprobada"),
+    info: campaign?.plantillaInfoId
+      ? state.templates.find((template) => template.id === campaign.plantillaInfoId && template.estado === "aprobada")
+      : state.templates.find((template) => template.tipo === "plantilla_info" && template.estado === "aprobada"),
     baja: state.templates.find((template) => template.tipo === "plantilla_baja" && template.estado === "aprobada")
   };
 
   if (replyKind === "positive") {
     const infoBody = templates.info ? renderTemplate(templates.info, lead, state.settings) : "";
-    const campaign = state.campaigns[0];
     const asset = campaign?.assetInfoId ? state.assets.find((item) => item.id === campaign.assetInfoId) : undefined;
     const alreadyQueuedInfo = state.queue.some(
       (item) => item.leadId === leadId && item.body === infoBody && ["pending", "processing", "sent"].includes(item.status)
@@ -256,7 +261,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
                   campaignId: campaign?.id,
                   phone: normalizePhone(lead.telefono),
                   messageType: "media" as const,
-                  body: "Demo visual Connessia",
+                  body: asset.name,
                   mediaUrl: asset.url,
                   status: "pending" as const,
                   scheduledAt: now,
@@ -323,6 +328,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
           {
             id: uid("queue"),
             leadId,
+            campaignId: campaign?.id,
             phone: normalizePhone(lead.telefono),
             messageType: "text",
             body: bajaBody,

@@ -33,7 +33,7 @@ import { enqueueCampaign, handleIncomingReply, processQueue } from "./services/c
 import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
-import type { Campaign, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task } from "./types/domain";
+import type { Campaign, CommercialAsset, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task } from "./types/domain";
 import { formatDate, formatDateTime, percent } from "./utils/formatters";
 
 const inputClass =
@@ -112,6 +112,43 @@ function emptyDemo(leadId = "", assignedTo = "admin-demo"): Demo {
   };
 }
 
+function emptyCampaign(userId = "admin-demo"): Campaign {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    nombre: "Nueva campaña",
+    descripcion: "",
+    segmento: {
+      zonas: [],
+      sectores: [],
+      grupoIds: [],
+      requireConsent: true
+    },
+    estado: "borrador",
+    plantillaInicialId: "tpl-inicial",
+    plantillaSeguimientoId: "tpl-seguimiento",
+    plantillaInfoId: "tpl-info",
+    assetInfoId: undefined,
+    maxSeguimientos: 1,
+    diasParaSeguimiento: 3,
+    dailyLimit: 80,
+    createdBy: userId,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function emptyAsset(): CommercialAsset {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    type: "imagen",
+    url: "",
+    storagePath: "",
+    createdAt: new Date().toISOString()
+  };
+}
+
 export default function App() {
   const store = useCrmStore();
   const { state, metrics } = store;
@@ -150,10 +187,11 @@ export default function App() {
                 state={state}
                 updateState={store.updateState}
                 onCampaignUpdate={store.updateCampaign}
+                onCampaignDelete={store.deleteCampaign}
               />
             )}
             {page === "plantillas" && <TemplatesScreen templates={state.templates} onAdd={store.addTemplate} />}
-            {page === "assets" && <AssetsScreen state={state} />}
+            {page === "assets" && <AssetsScreen state={state} onSave={store.upsertAsset} onDelete={store.deleteAsset} />}
             {page === "tareas" && <TasksScreen state={state} onSave={store.upsertTask} onDelete={store.deleteTask} />}
             {page === "demos" && <DemosScreen state={state} onSave={store.upsertDemo} onDelete={store.deleteDemo} />}
             {page === "metricas" && <MetricsScreen metrics={metrics} state={state} />}
@@ -724,14 +762,17 @@ function ImportScreen({ leads, onImport }: { leads: Lead[]; onImport: (leads: Le
 function CampaignsScreen({
   state,
   updateState,
-  onCampaignUpdate
+  onCampaignUpdate,
+  onCampaignDelete
 }: {
   state: ReturnType<typeof useCrmStore>["state"];
   updateState: ReturnType<typeof useCrmStore>["updateState"];
   onCampaignUpdate: (campaign: Campaign) => void;
+  onCampaignDelete: (id: string) => void;
 }) {
   const [checks, setChecks] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState(state.campaigns[0]?.id ?? "");
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const campaign = state.campaigns.find((item) => item.id === selectedId) ?? state.campaigns[0];
   const allChecked = complianceItems.every((item) => checks.includes(item));
   const activeQueue = state.queue.filter((item) => item.status === "pending" || item.status === "processing");
@@ -759,6 +800,12 @@ function CampaignsScreen({
       },
       updatedAt: new Date().toISOString()
     });
+  }
+
+  function saveCampaign(campaign: Campaign) {
+    onCampaignUpdate(campaign);
+    setSelectedId(campaign.id);
+    setEditingCampaign(null);
   }
 
   function openQueueItem(item: QueueItem) {
@@ -851,7 +898,7 @@ function CampaignsScreen({
       updateState(state, "Ese lead ya tiene una respuesta registrada. No se vuelve a generar seguimiento.");
       return;
     }
-    const result = handleIncomingReply(state, item.leadId, reply);
+    const result = handleIncomingReply(state, item.leadId, reply, item.campaignId);
     let nextState = result.state as typeof state;
     const followup = openFollowup
       ? nextState.queue.find((candidate) => candidate.leadId === item.leadId && candidate.status === "pending")
@@ -880,9 +927,12 @@ function CampaignsScreen({
       <ScreenHeader title="Campañas" subtitle="Constructor sencillo con checklist legal, segmentación y cola de envíos." />
       <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
         <Card className="p-5">
-          <select className={inputClass} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
-            {state.campaigns.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
-          </select>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <select className={inputClass} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+              {state.campaigns.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
+            </select>
+            <Button icon={<Plus size={18} />} onClick={() => setEditingCampaign(emptyCampaign(state.currentUser.uid))}>Nueva</Button>
+          </div>
           {campaign && (
             <div className="mt-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
@@ -892,10 +942,15 @@ function CampaignsScreen({
                 </div>
                 <Badge value={campaign.estado} />
               </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" icon={<Edit3 size={16} />} onClick={() => setEditingCampaign(campaign)}>Editar campaña</Button>
+                <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar esta campaña y su cola/mensajes?") && onCampaignDelete(campaign.id)}>Eliminar campaña</Button>
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <Info label="Zonas" value={campaign.segmento.zonas.join(", ")} />
                 <Info label="Sectores" value={campaign.segmento.sectores.join(", ")} />
                 <Info label="Grupos" value={campaign.segmento.grupoIds.length ? campaign.segmento.grupoIds.map((id) => state.leadGroups.find((group) => group.id === id)?.nombre ?? id).join(", ") : "Todos"} />
+                <Info label="Asset tras SI" value={campaign.assetInfoId ? state.assets.find((asset) => asset.id === campaign.assetInfoId)?.name ?? "Asset no encontrado" : "Ninguno"} />
                 <Info label="Seguimientos" value={`${campaign.maxSeguimientos} en ${campaign.diasParaSeguimiento} días`} />
                 <Info label="Plantilla inicial" value={state.templates.find((tpl) => tpl.id === campaign.plantillaInicialId)?.nombre ?? ""} />
               </div>
@@ -1015,6 +1070,16 @@ function CampaignsScreen({
           </div>
         </Card>
       </div>
+      {editingCampaign && (
+        <CampaignFormModal
+          campaign={editingCampaign}
+          groups={state.leadGroups}
+          templates={state.templates}
+          assets={state.assets}
+          onClose={() => setEditingCampaign(null)}
+          onSave={saveCampaign}
+        />
+      )}
     </div>
   );
 }
@@ -1048,23 +1113,193 @@ function TemplatesScreen({ templates, onAdd }: { templates: MessageTemplate[]; o
   );
 }
 
-function AssetsScreen({ state }: { state: ReturnType<typeof useCrmStore>["state"] }) {
+function AssetsScreen({
+  state,
+  onSave,
+  onDelete
+}: {
+  state: ReturnType<typeof useCrmStore>["state"];
+  onSave: (asset: CommercialAsset) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState<CommercialAsset | null>(null);
   return (
     <div className="space-y-5">
       <ScreenHeader title="Assets comerciales" subtitle="Imágenes, PDF y vídeos para campañas. En producción se suben a Firebase Storage." />
+      <div className="flex justify-end">
+        <Button icon={<FileUp size={18} />} onClick={() => setEditing(emptyAsset())}>Nuevo asset</Button>
+      </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {state.assets.map((asset) => (
           <Card key={asset.id} className="overflow-hidden">
-            {asset.type === "imagen" && <img className="h-44 w-full object-cover" src={asset.url} alt={asset.name} />}
+            {asset.type === "imagen" && asset.url && <img className="h-44 w-full object-cover" src={asset.url} alt={asset.name} />}
+            {asset.type !== "imagen" && (
+              <div className="flex h-44 items-center justify-center bg-slate-100 text-sm font-semibold uppercase text-slate-500">
+                {asset.type}
+              </div>
+            )}
             <div className="p-4">
               <h3 className="font-bold text-slate-950">{asset.name}</h3>
               <p className="text-sm text-slate-500">{asset.type} · {asset.storagePath}</p>
-              <a className="mt-3 inline-block text-sm font-semibold text-connessia-700" href={asset.url} target="_blank" rel="noreferrer">Abrir asset</a>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {asset.url && <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => window.open(asset.url, "_blank", "noopener,noreferrer")}>Abrir</Button>}
+                <Button variant="secondary" icon={<Edit3 size={16} />} onClick={() => setEditing(asset)}>Editar</Button>
+                <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar este asset? Se quitara de las campanas que lo usen.") && onDelete(asset.id)}>Eliminar</Button>
+              </div>
             </div>
           </Card>
         ))}
       </div>
+      {state.assets.length === 0 && <Card className="p-5 text-sm text-slate-500">Todavia no hay assets. Crea uno con una URL publica de Firebase Storage, una imagen o un PDF.</Card>}
+      {editing && (
+        <AssetFormModal
+          asset={editing}
+          onClose={() => setEditing(null)}
+          onSave={(asset) => {
+            onSave(asset);
+            setEditing(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function CampaignFormModal({
+  campaign,
+  groups,
+  templates,
+  assets,
+  onClose,
+  onSave
+}: {
+  campaign: Campaign;
+  groups: LeadGroup[];
+  templates: MessageTemplate[];
+  assets: CommercialAsset[];
+  onClose: () => void;
+  onSave: (campaign: Campaign) => void;
+}) {
+  const [draft, setDraft] = useState(campaign);
+  const templateOptions = templates.filter((template) => template.estado === "aprobada" || template.id === draft.plantillaInicialId || template.id === draft.plantillaInfoId);
+
+  function toggleGroup(groupId: string, checked: boolean) {
+    setDraft((current) => ({
+      ...current,
+      segmento: {
+        ...current.segmento,
+        grupoIds: checked
+          ? [...current.segmento.grupoIds, groupId]
+          : current.segmento.grupoIds.filter((id) => id !== groupId)
+      }
+    }));
+  }
+
+  function updateCsv(key: "zonas" | "sectores", value: string) {
+    setDraft((current) => ({
+      ...current,
+      segmento: {
+        ...current.segmento,
+        [key]: value.split(",").map((item) => item.trim()).filter(Boolean)
+      }
+    }));
+  }
+
+  return (
+    <Modal title="Campana" onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Nombre" value={draft.nombre} onChange={(value) => setDraft({ ...draft, nombre: value })} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Estado</span>
+          <select className={inputClass} value={draft.estado} onChange={(event) => setDraft({ ...draft, estado: event.target.value as Campaign["estado"] })}>
+            {["borrador", "activa", "pausada", "finalizada"].map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Descripcion</span>
+          <textarea className={inputClass} rows={3} value={draft.descripcion} onChange={(event) => setDraft({ ...draft, descripcion: event.target.value })} />
+        </label>
+        <Field label="Zonas separadas por coma" value={draft.segmento.zonas.join(", ")} onChange={(value) => updateCsv("zonas", value)} />
+        <Field label="Sectores separados por coma" value={draft.segmento.sectores.join(", ")} onChange={(value) => updateCsv("sectores", value)} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Plantilla inicial</span>
+          <select className={inputClass} value={draft.plantillaInicialId} onChange={(event) => setDraft({ ...draft, plantillaInicialId: event.target.value })}>
+            {templateOptions.map((template) => <option key={template.id} value={template.id}>{template.nombre}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Plantilla tras SI</span>
+          <select className={inputClass} value={draft.plantillaInfoId ?? ""} onChange={(event) => setDraft({ ...draft, plantillaInfoId: event.target.value || undefined })}>
+            <option value="">Sin plantilla informativa</option>
+            {templateOptions.map((template) => <option key={template.id} value={template.id}>{template.nombre}</option>)}
+          </select>
+        </label>
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Asset a enviar tras SI</span>
+          <select className={inputClass} value={draft.assetInfoId ?? ""} onChange={(event) => setDraft({ ...draft, assetInfoId: event.target.value || undefined })}>
+            <option value="">No enviar asset</option>
+            {assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} ({asset.type})</option>)}
+          </select>
+        </label>
+        <Field label="Seguimientos maximos" type="number" value={String(draft.maxSeguimientos)} onChange={(value) => setDraft({ ...draft, maxSeguimientos: Number(value) || 0 })} />
+        <Field label="Dias para seguimiento" type="number" value={String(draft.diasParaSeguimiento)} onChange={(value) => setDraft({ ...draft, diasParaSeguimiento: Number(value) || 0 })} />
+        <label className="md:col-span-2">
+          <span className="mb-2 block text-sm font-semibold text-slate-700">Grupos de leads</span>
+          <div className="grid gap-2 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
+            {groups.map((group) => (
+              <label key={group.id} className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <input type="checkbox" checked={draft.segmento.grupoIds.includes(group.id)} onChange={(event) => toggleGroup(group.id, event.target.checked)} />
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: group.color }} />
+                {group.nombre}
+              </label>
+            ))}
+            {groups.length === 0 && <p className="text-sm text-slate-500">Crea grupos desde Leads para segmentar mejor.</p>}
+          </div>
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => onSave({ ...draft, nombre: draft.nombre.trim() || "Campana sin nombre", updatedAt: new Date().toISOString() })}>Guardar campana</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function AssetFormModal({
+  asset,
+  onClose,
+  onSave
+}: {
+  asset: CommercialAsset;
+  onClose: () => void;
+  onSave: (asset: CommercialAsset) => void;
+}) {
+  const [draft, setDraft] = useState(asset);
+
+  return (
+    <Modal title="Asset comercial" onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Nombre" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Tipo</span>
+          <select className={inputClass} value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as CommercialAsset["type"] })}>
+            <option value="imagen">Imagen</option>
+            <option value="pdf">PDF</option>
+            <option value="video">Video</option>
+          </select>
+        </label>
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">URL publica</span>
+          <input className={inputClass} placeholder="https://..." value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} />
+          <p className="mt-1 text-xs text-slate-500">Pega aqui el enlace publico de Firebase Storage, Drive publicado, una imagen o un PDF.</p>
+        </label>
+        <Field label="Ruta interna o referencia" value={draft.storagePath} onChange={(value) => setDraft({ ...draft, storagePath: value })} />
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => onSave({ ...draft, name: draft.name.trim() || "Asset sin nombre", url: draft.url.trim(), storagePath: draft.storagePath.trim() })}>Guardar asset</Button>
+      </div>
+    </Modal>
   );
 }
 

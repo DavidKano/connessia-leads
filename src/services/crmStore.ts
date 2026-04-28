@@ -211,12 +211,53 @@ export function useCrmStore() {
   }
 
   function updateCampaign(campaign: Campaign) {
+    const exists = state.campaigns.some((item) => item.id === campaign.id);
     updateState(
       {
         ...state,
-        campaigns: state.campaigns.map((item) => (item.id === campaign.id ? campaign : item))
+        campaigns: exists
+          ? state.campaigns.map((item) => (item.id === campaign.id ? campaign : item))
+          : [campaign, ...state.campaigns]
       },
-      "Campaña actualizada."
+      exists ? "Campaña actualizada." : "Campaña creada."
+    );
+  }
+
+  function deleteCampaign(campaignId: string) {
+    updateState(
+      {
+        ...state,
+        campaigns: state.campaigns.filter((campaign) => campaign.id !== campaignId),
+        queue: state.queue.filter((item) => item.campaignId !== campaignId),
+        messages: state.messages.filter((message) => message.campaignId !== campaignId)
+      },
+      "Campaña eliminada."
+    );
+  }
+
+  function upsertAsset(asset: CommercialAsset) {
+    const exists = state.assets.some((item) => item.id === asset.id);
+    updateState(
+      {
+        ...state,
+        assets: exists
+          ? state.assets.map((item) => (item.id === asset.id ? asset : item))
+          : [{ ...asset, id: asset.id || crypto.randomUUID(), createdAt: asset.createdAt || new Date().toISOString() }, ...state.assets]
+      },
+      exists ? "Asset actualizado." : "Asset creado."
+    );
+  }
+
+  function deleteAsset(assetId: string) {
+    updateState(
+      {
+        ...state,
+        assets: state.assets.filter((asset) => asset.id !== assetId),
+        campaigns: state.campaigns.map((campaign) =>
+          campaign.assetInfoId === assetId ? { ...campaign, assetInfoId: undefined, updatedAt: new Date().toISOString() } : campaign
+        )
+      },
+      "Asset eliminado."
     );
   }
 
@@ -269,6 +310,9 @@ export function useCrmStore() {
     addDoNotContact,
     addTemplate,
     updateCampaign,
+    deleteCampaign,
+    upsertAsset,
+    deleteAsset,
     upsertLeadGroup,
     deleteLeadGroup,
     upsertTask,
