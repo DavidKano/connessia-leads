@@ -734,6 +734,13 @@ function CampaignsScreen({
   const [selectedId, setSelectedId] = useState(state.campaigns[0]?.id ?? "");
   const campaign = state.campaigns.find((item) => item.id === selectedId) ?? state.campaigns[0];
   const allChecked = complianceItems.every((item) => checks.includes(item));
+  const activeQueue = state.queue.filter((item) => item.status === "pending" || item.status === "processing");
+  const sentQueue = state.queue.filter((item) => item.status === "sent");
+  const sortedActiveQueue = [...activeQueue].sort((a, b) => {
+    const rank = { processing: 0, pending: 1, sent: 2, failed: 3, cancelled: 4 } as const;
+    return rank[a.status] - rank[b.status] || a.scheduledAt.localeCompare(b.scheduledAt);
+  });
+  const latestSentByLead = Array.from(new Map([...sentQueue].reverse().map((item) => [item.leadId, item])).values());
 
   async function activate() {
     const result = enqueueCampaign(state, campaign.id);
@@ -770,7 +777,7 @@ function CampaignsScreen({
   }
 
   function openNextQueueItem() {
-    const next = state.queue.find((item) => item.status === "pending" || item.status === "processing");
+    const next = sortedActiveQueue.find((item) => item.status === "processing") ?? sortedActiveQueue.find((item) => item.status === "pending");
     if (!next) {
       updateState(state, "No hay mensajes pendientes para abrir en WhatsApp Web.");
       return;
@@ -779,7 +786,14 @@ function CampaignsScreen({
   }
 
   function markQueueItemSent(item: QueueItem, openNext = false) {
+    if (item.status === "sent") {
+      updateState(state, "Ese mensaje ya estaba marcado como enviado.");
+      return;
+    }
     const sentAt = new Date().toISOString();
+    const alreadyLogged = state.messages.some(
+      (message) => message.providerMessageId === `whatsapp_web_${item.id}` || (message.leadId === item.leadId && message.direction === "outbound" && message.body === item.body && message.status === "sent")
+    );
     let nextQueue = state.queue.map((candidate) =>
       candidate.id === item.id
         ? {
@@ -804,21 +818,23 @@ function CampaignsScreen({
       {
         ...state,
         queue: nextQueue,
-        messages: [
-          ...state.messages,
-          {
-            id: `msg-${crypto.randomUUID()}`,
-            leadId: item.leadId,
-            campaignId: item.campaignId,
-            direction: "outbound",
-            channel: "whatsapp",
-            body: item.body,
-            mediaUrl: item.mediaUrl,
-            providerMessageId: `whatsapp_web_${item.id}`,
-            status: "sent",
-            createdAt: sentAt
-          }
-        ],
+        messages: alreadyLogged
+          ? state.messages
+          : [
+              ...state.messages,
+              {
+                id: `msg-${crypto.randomUUID()}`,
+                leadId: item.leadId,
+                campaignId: item.campaignId,
+                direction: "outbound",
+                channel: "whatsapp",
+                body: item.body,
+                mediaUrl: item.mediaUrl,
+                providerMessageId: `whatsapp_web_${item.id}`,
+                status: "sent",
+                createdAt: sentAt
+              }
+            ],
         leads: state.leads.map((lead) =>
           lead.id === item.leadId
             ? { ...lead, ultimoContacto: sentAt, proximaAccion: "Esperar respuesta", updatedAt: sentAt }
@@ -830,6 +846,11 @@ function CampaignsScreen({
   }
 
   function registerQueueReply(item: QueueItem, reply: string, openFollowup = true) {
+    const alreadyReplied = state.messages.some((message) => message.leadId === item.leadId && message.direction === "inbound");
+    if (alreadyReplied) {
+      updateState(state, "Ese lead ya tiene una respuesta registrada. No se vuelve a generar seguimiento.");
+      return;
+    }
     const result = handleIncomingReply(state, item.leadId, reply);
     let nextState = result.state as typeof state;
     const followup = openFollowup
@@ -922,15 +943,15 @@ function CampaignsScreen({
         <Card className="p-5">
           <h3 className="mb-4 text-lg font-bold text-slate-950">Cola de envíos</h3>
           <div className="mb-4 grid grid-cols-3 gap-2 text-center text-xs">
-            <div className="rounded-md bg-slate-50 p-2"><strong className="block text-base text-slate-950">{state.queue.filter((item) => item.status === "pending").length}</strong>Pendientes</div>
-            <div className="rounded-md bg-blue-50 p-2"><strong className="block text-base text-blue-900">{state.queue.filter((item) => item.status === "processing").length}</strong>Abiertos</div>
-            <div className="rounded-md bg-emerald-50 p-2"><strong className="block text-base text-emerald-900">{state.queue.filter((item) => item.status === "sent").length}</strong>Enviados</div>
+            <div className="rounded-md bg-slate-50 p-2"><strong className="block text-base text-slate-950">{activeQueue.filter((item) => item.status === "pending").length}</strong>Pendientes</div>
+            <div className="rounded-md bg-blue-50 p-2"><strong className="block text-base text-blue-900">{activeQueue.filter((item) => item.status === "processing").length}</strong>Abiertos</div>
+            <div className="rounded-md bg-emerald-50 p-2"><strong className="block text-base text-emerald-900">{sentQueue.length}</strong>Enviados</div>
           </div>
           <div className="mb-4 rounded-lg border border-connessia-200 bg-connessia-50 p-3 text-sm text-connessia-900">
             Flujo recomendado: abre un chat, pulsa Enviado y siguiente, y cuando respondan usa SI/NO/BAJA sobre el mensaje enviado.
           </div>
           <div className="space-y-3">
-            {state.queue.slice(0, 8).map((item) => (
+            {sortedActiveQueue.slice(0, 8).map((item) => (
               <div key={item.id} className="rounded-md border border-slate-200 p-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -966,17 +987,31 @@ function CampaignsScreen({
                       Enviado y siguiente
                     </Button>
                   )}
-                  {item.status === "sent" && (
-                    <>
-                      <Button variant="secondary" onClick={() => registerQueueReply(item, "SI")}>Respuesta SI</Button>
-                      <Button variant="secondary" onClick={() => registerQueueReply(item, "NO", false)}>Respuesta NO</Button>
-                      <Button variant="danger" onClick={() => registerQueueReply(item, "BAJA", false)}>BAJA</Button>
-                    </>
-                  )}
                 </div>
               </div>
             ))}
-            {state.queue.length === 0 && <p className="text-sm text-slate-500">No hay mensajes en cola.</p>}
+            {sortedActiveQueue.length === 0 && <p className="text-sm text-slate-500">No hay mensajes pendientes por enviar.</p>}
+            {latestSentByLead.length > 0 && (
+              <div className="pt-3">
+                <h4 className="mb-2 text-sm font-bold text-slate-950">Últimos enviados</h4>
+                <div className="space-y-2">
+                  {latestSentByLead.slice(0, 4).map((item) => (
+                    <div key={item.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <strong>{state.leads.find((lead) => lead.id === item.leadId)?.nombreNegocio ?? item.phone}</strong>
+                        <Badge value="sent" />
+                      </div>
+                      <p className="mt-1 line-clamp-1 text-slate-600">{item.body}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button variant="secondary" onClick={() => registerQueueReply(item, "SI")}>Respuesta SI</Button>
+                        <Button variant="secondary" onClick={() => registerQueueReply(item, "NO", false)}>Respuesta NO</Button>
+                        <Button variant="danger" onClick={() => registerQueueReply(item, "BAJA", false)}>BAJA</Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       </div>

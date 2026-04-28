@@ -208,6 +208,20 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
     const infoBody = templates.info ? renderTemplate(templates.info, lead, state.settings) : "";
     const campaign = state.campaigns[0];
     const asset = campaign?.assetInfoId ? state.assets.find((item) => item.id === campaign.assetInfoId) : undefined;
+    const alreadyQueuedInfo = state.queue.some(
+      (item) => item.leadId === leadId && item.body === infoBody && ["pending", "processing", "sent"].includes(item.status)
+    );
+    const alreadySentInfo = state.messages.some(
+      (message) => message.leadId === leadId && message.direction === "outbound" && message.body === infoBody && message.status === "sent"
+    );
+    const shouldQueueInfo = Boolean(infoBody) && !alreadyQueuedInfo && !alreadySentInfo;
+    const alreadyQueuedAsset = asset
+      ? state.queue.some((item) => item.leadId === leadId && item.mediaUrl === asset.url && ["pending", "processing", "sent"].includes(item.status))
+      : false;
+    const alreadySentAsset = asset
+      ? state.messages.some((message) => message.leadId === leadId && message.direction === "outbound" && message.mediaUrl === asset.url && message.status === "sent")
+      : false;
+    const shouldQueueAsset = Boolean(asset) && !alreadyQueuedAsset && !alreadySentAsset;
     return {
       state: {
         ...state,
@@ -219,18 +233,22 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
         messages: [...state.messages, inbound],
         queue: [
           ...state.queue,
-          {
-            id: uid("queue"),
-            leadId,
-            campaignId: campaign?.id,
-            phone: normalizePhone(lead.telefono),
-            messageType: "text",
-            body: infoBody,
-            status: "pending",
-            scheduledAt: now,
-            retries: 0
-          },
-          ...(asset
+          ...(shouldQueueInfo
+            ? [
+                {
+                  id: uid("queue"),
+                  leadId,
+                  campaignId: campaign?.id,
+                  phone: normalizePhone(lead.telefono),
+                  messageType: "text" as const,
+                  body: infoBody,
+                  status: "pending" as const,
+                  scheduledAt: now,
+                  retries: 0
+                }
+              ]
+            : []),
+          ...(asset && shouldQueueAsset
             ? [
                 {
                   id: uid("queue"),
