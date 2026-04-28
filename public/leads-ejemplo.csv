@@ -1,0 +1,4 @@
+nombre_negocio,persona_contacto,telefono,email,direccion,ciudad,zona,sector,web,notas,consentimiento_whatsapp,origen_consentimiento,fecha_consentimiento,comercial_asignado
+Centro Estetica Sol,Laura Solis,+34610111222,laura@esteticasol.es,Calle Luna 3,Sevilla,Sevilla Este,estética,,Aceptó info por formulario,sí,formulario web,2026-04-22,comercial-ana
+Taller Rapido Sur,Manuel Vera,+34610333444,manuel@tallersur.es,Av. Taller 8,Sevilla,Nervión,taller,,Sin consentimiento todavía,no,,,admin-demo
+Clinica Dental Prado,Elena Prado,+34610555666,elena@dentalprado.es,Calle Prado 17,Sevilla,Sevilla Este,clínicas,https://dentalprado.example,Quiere demo visual,true,llamada,2026-04-24,comercial-ana
