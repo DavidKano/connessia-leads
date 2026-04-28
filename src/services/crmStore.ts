@@ -29,6 +29,7 @@ import type {
   Task,
   UserRole
 } from "../types/domain";
+import { normalizePhone } from "../utils/formatters";
 
 export interface CrmState {
   users: AppUser[];
@@ -122,10 +123,11 @@ export function useCrmStore() {
   }
 
   function upsertLead(lead: Lead) {
+    const normalizedLead = { ...lead, telefono: normalizePhone(lead.telefono) };
     const exists = state.leads.some((item) => item.id === lead.id);
     const nextLeads = exists
-      ? state.leads.map((item) => (item.id === lead.id ? { ...lead, updatedAt: new Date().toISOString() } : item))
-      : [{ ...lead, id: lead.id || crypto.randomUUID(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, ...state.leads];
+      ? state.leads.map((item) => (item.id === lead.id ? { ...normalizedLead, updatedAt: new Date().toISOString() } : item))
+      : [{ ...normalizedLead, id: normalizedLead.id || crypto.randomUUID(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, ...state.leads];
     updateState({ ...state, leads: nextLeads }, exists ? "Lead actualizado." : "Lead creado.");
   }
 

@@ -9,7 +9,7 @@ import type {
   Settings,
   Task
 } from "../types/domain";
-import { classifyReply, isValidInternationalPhone, renderTemplate } from "../utils/formatters";
+import { classifyReply, isValidInternationalPhone, normalizePhone, renderTemplate } from "../utils/formatters";
 import { getWhatsAppProvider } from "./whatsappProvider";
 
 export interface EngineState {
@@ -34,10 +34,11 @@ function uid(prefix: string) {
 }
 
 export function canSendToLead(lead: Lead, doNotContact: DoNotContact[]) {
+  const phone = normalizePhone(lead.telefono);
   if (!lead.tieneConsentimientoWhatsapp) return "No tiene consentimiento WhatsApp registrado.";
   if (lead.estado === "baja" || lead.estado === "bloqueado") return "El lead está en baja o bloqueado.";
-  if (!isValidInternationalPhone(lead.telefono)) return "El teléfono no tiene formato internacional válido.";
-  if (doNotContact.some((entry) => entry.phone === lead.telefono || entry.email === lead.email)) {
+  if (!isValidInternationalPhone(phone)) return "El teléfono no tiene formato internacional válido.";
+  if (doNotContact.some((entry) => normalizePhone(entry.phone) === phone || entry.email?.toLowerCase() === lead.email.toLowerCase())) {
     return "El lead está en la lista de exclusión.";
   }
   return null;
@@ -53,7 +54,7 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
     return { state, notice: "La plantilla inicial debe estar aprobada antes de activar la campaña." };
   }
 
-  const targetLeads = state.leads.filter((lead) => {
+  const selectedLeads = state.leads.filter((lead) => {
     const selectedByGroup =
       campaign.segmento.grupoIds.length > 0 &&
       campaign.segmento.grupoIds.some((groupId) => lead.grupoIds.includes(groupId));
@@ -61,8 +62,22 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
     const sectorMatch =
       campaign.segmento.sectores.length === 0 || campaign.segmento.sectores.includes(lead.sector);
     const selectedByLegacySegment = campaign.segmento.grupoIds.length === 0 && zoneMatch && sectorMatch;
-    return (selectedByGroup || selectedByLegacySegment) && !canSendToLead(lead, state.doNotContact);
+    return selectedByGroup || selectedByLegacySegment;
   });
+  const blockedReasons = selectedLeads
+    .map((lead) => ({ lead, reason: canSendToLead(lead, state.doNotContact) }))
+    .filter((item): item is { lead: Lead; reason: string } => Boolean(item.reason));
+  const targetLeads = selectedLeads.filter((lead) => !canSendToLead(lead, state.doNotContact));
+
+  if (selectedLeads.length > 0 && targetLeads.length === 0) {
+    const firstReason = blockedReasons[0];
+    return {
+      state,
+      notice: firstReason
+        ? `0 mensajes preparados. ${firstReason.lead.nombreNegocio}: ${firstReason.reason}`
+        : "0 mensajes preparados. Revisa consentimiento, teléfono o lista de exclusión."
+    };
+  }
 
   const scheduledAt = new Date().toISOString();
   const nextQueue = [
@@ -71,7 +86,7 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
       id: uid("queue"),
       leadId: lead.id,
       campaignId: campaign.id,
-      phone: lead.telefono,
+      phone: normalizePhone(lead.telefono),
       messageType: "template",
       templateId: template.id,
       body: renderTemplate(template, lead, state.settings),

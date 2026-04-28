@@ -3,7 +3,7 @@ import type { Lead, MessageTemplate, Settings } from "../types/domain";
 export const phoneRegex = /^\+[1-9]\d{8,14}$/;
 
 export function isValidInternationalPhone(phone: string) {
-  return phoneRegex.test(phone.trim());
+  return phoneRegex.test(normalizePhone(phone));
 }
 
 export function normalizePhone(phone: string) {
