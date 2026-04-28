@@ -21,7 +21,7 @@ import {
   Upload,
   Users
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Sidebar, navItems, type PageId } from "./components/layout/Sidebar";
 import { Topbar } from "./components/layout/Topbar";
 import { Badge } from "./components/ui/Badge";
@@ -61,11 +61,13 @@ function emptyLead(): Lead {
     sector: "",
     web: "",
     notas: "",
-    estado: "nuevo",
+    estado: "consentimiento_obtenido",
     etiquetas: [],
     grupoIds: [],
     comercialAsignado: "admin-demo",
-    tieneConsentimientoWhatsapp: false,
+    tieneConsentimientoWhatsapp: true,
+    fechaConsentimiento: now,
+    origenConsentimiento: "otro",
     createdAt: now,
     updatedAt: now
   };
@@ -117,10 +119,7 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
 
-  const visibleLeads = useMemo(() => {
-    if (state.currentUser.role !== "comercial") return state.leads;
-    return state.leads.filter((lead) => lead.comercialAsignado === state.currentUser.uid);
-  }, [state.currentUser, state.leads]);
+  const visibleLeads = state.leads;
 
   const selectedLead = selectedLeadId ? state.leads.find((lead) => lead.id === selectedLeadId) : null;
 
@@ -845,6 +844,7 @@ function CampaignsScreen({
               </div>
               <div className="rounded-lg border border-slate-200 p-4">
                 <h4 className="font-bold text-slate-950">Grupos incluidos</h4>
+                <p className="mt-1 text-sm text-slate-500">Si seleccionas grupos, la campana usa esos grupos directamente y no bloquea por zona o sector.</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {state.leadGroups.map((group) => (
                     <label key={group.id} className="flex items-center gap-2 text-sm font-medium text-slate-700">

@@ -54,12 +54,14 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
   }
 
   const targetLeads = state.leads.filter((lead) => {
+    const selectedByGroup =
+      campaign.segmento.grupoIds.length > 0 &&
+      campaign.segmento.grupoIds.some((groupId) => lead.grupoIds.includes(groupId));
     const zoneMatch = campaign.segmento.zonas.length === 0 || campaign.segmento.zonas.includes(lead.zona);
     const sectorMatch =
       campaign.segmento.sectores.length === 0 || campaign.segmento.sectores.includes(lead.sector);
-    const groupMatch =
-      campaign.segmento.grupoIds.length === 0 || campaign.segmento.grupoIds.some((groupId) => lead.grupoIds.includes(groupId));
-    return zoneMatch && sectorMatch && groupMatch && !canSendToLead(lead, state.doNotContact);
+    const selectedByLegacySegment = campaign.segmento.grupoIds.length === 0 && zoneMatch && sectorMatch;
+    return (selectedByGroup || selectedByLegacySegment) && !canSendToLead(lead, state.doNotContact);
   });
 
   const scheduledAt = new Date().toISOString();
