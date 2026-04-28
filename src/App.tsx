@@ -3,6 +3,9 @@ import {
   BarChart3,
   CalendarClock,
   CheckCircle2,
+  ClipboardCheck,
+  Database,
+  ExternalLink,
   FileUp,
   MessageCircle,
   PauseCircle,
@@ -26,7 +29,8 @@ import { StatCard } from "./components/ui/StatCard";
 import { enqueueCampaign, handleIncomingReply, processQueue } from "./services/campaignEngine";
 import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
-import type { Campaign, Lead, MessageTemplate, ProviderName, Settings } from "./types/domain";
+import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
+import type { Campaign, Lead, MessageTemplate, ProviderName, QueueItem, Settings } from "./types/domain";
 import { formatDate, formatDateTime, percent } from "./utils/formatters";
 
 const inputClass =
@@ -108,6 +112,8 @@ export default function App() {
             {page === "demos" && <DemosScreen state={state} />}
             {page === "metricas" && <MetricsScreen metrics={metrics} state={state} />}
             {page === "whatsapp" && <WhatsappScreen settings={state.settings} onSave={store.updateSettings} />}
+            {page === "firebase" && <FirebaseScreen settings={state.settings} onSave={store.updateSettings} />}
+            {page === "tutorial" && <TutorialScreen />}
             {page === "exclusion" && <ExclusionScreen state={state} onAdd={store.addDoNotContact} />}
             {page === "auditoria" && <AuditScreen state={state} />}
             {page === "simulador" && <SimulatorScreen state={state} updateState={store.updateState} />}
@@ -213,7 +219,7 @@ function Dashboard({
         <Card className="p-5">
           <h3 className="mb-4 text-lg font-bold text-slate-950">Cumplimiento y seguridad</h3>
           <div className="space-y-3 text-sm text-slate-600">
-            <p>Proveedor activo: <strong>{state.settings.whatsappProvider}</strong></p>
+            <p>Canal activo: <strong>{state.settings.whatsappProvider === "whatsapp_web" ? "WhatsApp Web" : state.settings.whatsappProvider}</strong></p>
             <p>Límite diario: <strong>{state.settings.dailyLimit}</strong></p>
             <p>Límite horario: <strong>{state.settings.hourlyLimit}</strong></p>
             <p>Exclusiones registradas: <strong>{state.doNotContact.length}</strong></p>
@@ -569,9 +575,68 @@ function CampaignsScreen({
     updateState(result.state as typeof state, result.notice);
   }
 
-  async function process() {
-    const result = await processQueue(state, 20);
-    updateState(result.state as typeof state, result.notice);
+  function openQueueItem(item: QueueItem) {
+    openWhatsAppWebComposer(item.phone, item.body);
+    updateState(
+      {
+        ...state,
+        queue: state.queue.map((candidate) =>
+          candidate.id === item.id
+            ? { ...candidate, status: "processing", errorMessage: "Chat abierto en WhatsApp Web. Confirma el envío manualmente." }
+            : candidate
+        )
+      },
+      `Chat abierto para ${item.phone}. Revisa el texto y pulsa enviar en WhatsApp Web.`
+    );
+  }
+
+  function openNextQueueItem() {
+    const next = state.queue.find((item) => item.status === "pending" || item.status === "processing");
+    if (!next) {
+      updateState(state, "No hay mensajes pendientes para abrir en WhatsApp Web.");
+      return;
+    }
+    openQueueItem(next);
+  }
+
+  function markQueueItemSent(item: QueueItem) {
+    const sentAt = new Date().toISOString();
+    updateState(
+      {
+        ...state,
+        queue: state.queue.map((candidate) =>
+          candidate.id === item.id
+            ? {
+                ...candidate,
+                status: "sent",
+                sentAt,
+                providerMessageId: `whatsapp_web_${item.id}`
+              }
+            : candidate
+        ),
+        messages: [
+          ...state.messages,
+          {
+            id: `msg-${crypto.randomUUID()}`,
+            leadId: item.leadId,
+            campaignId: item.campaignId,
+            direction: "outbound",
+            channel: "whatsapp",
+            body: item.body,
+            mediaUrl: item.mediaUrl,
+            providerMessageId: `whatsapp_web_${item.id}`,
+            status: "sent",
+            createdAt: sentAt
+          }
+        ],
+        leads: state.leads.map((lead) =>
+          lead.id === item.leadId
+            ? { ...lead, ultimoContacto: sentAt, proximaAccion: "Esperar respuesta", updatedAt: sentAt }
+            : lead
+        )
+      },
+      "Mensaje marcado como enviado."
+    );
   }
 
   return (
@@ -614,7 +679,7 @@ function CampaignsScreen({
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button icon={<PlayCircle size={18} />} disabled={!allChecked} onClick={activate}>Validar y encolar campaña</Button>
-                <Button variant="secondary" icon={<Send size={18} />} onClick={process}>Procesar cola mock</Button>
+                <Button variant="secondary" icon={<ExternalLink size={18} />} onClick={openNextQueueItem}>Abrir siguiente en WhatsApp Web</Button>
                 <Button variant="danger" icon={<PauseCircle size={18} />} onClick={() => onCampaignUpdate({ ...campaign, estado: "pausada", updatedAt: new Date().toISOString() })}>Pausar</Button>
               </div>
             </div>
@@ -630,6 +695,26 @@ function CampaignsScreen({
                   <Badge value={item.status} />
                 </div>
                 <p className="mt-1 line-clamp-2 text-slate-600">{item.body}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a
+                    className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-connessia-300 hover:text-connessia-800"
+                    href={buildWhatsAppWebUrl(item.phone, item.body)}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      openQueueItem(item);
+                    }}
+                  >
+                    <ExternalLink size={14} />
+                    Abrir chat
+                  </a>
+                  {item.status !== "sent" && (
+                    <Button variant="secondary" icon={<ClipboardCheck size={16} />} onClick={() => markQueueItemSent(item)}>
+                      Marcar enviado
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
             {state.queue.length === 0 && <p className="text-sm text-slate-500">No hay mensajes en cola.</p>}
@@ -645,8 +730,8 @@ function TemplatesScreen({ templates, onAdd }: { templates: MessageTemplate[]; o
     <div className="space-y-5">
       <ScreenHeader
         title="Plantillas"
-        subtitle="Mensajes aprobados por proveedor oficial. Los iniciales no se envían si no están aprobados."
-        action={<Button icon={<Plus size={18} />} onClick={() => onAdd({ id: crypto.randomUUID(), nombre: "Nueva plantilla", tipo: "plantilla_inicial", proveedor: "mock", idioma: "es", categoria: "marketing", body: "Hola {{persona_contacto}}, ...", variables: ["persona_contacto"], estado: "borrador", createdAt: new Date().toISOString() })}>Nueva</Button>}
+        subtitle="Mensajes base para WhatsApp Web. Los iniciales no se preparan si no están aprobados."
+        action={<Button icon={<Plus size={18} />} onClick={() => onAdd({ id: crypto.randomUUID(), nombre: "Nueva plantilla", tipo: "plantilla_inicial", proveedor: "whatsapp_web", idioma: "es", categoria: "marketing", body: "Hola {{persona_contacto}}, ...", variables: ["persona_contacto"], estado: "borrador", createdAt: new Date().toISOString() })}>Nueva</Button>}
       />
       <div className="grid gap-4 lg:grid-cols-2">
         {templates.map((template) => (
@@ -732,20 +817,20 @@ function MetricsScreen({ metrics, state }: { metrics: ReturnType<typeof useCrmSt
   );
 }
 
-function WhatsappScreen({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
+function LegacyWhatsappScreen({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
   const [draft, setDraft] = useState(settings);
   const updateChannel = (key: keyof Settings["whatsappChannel"], value: string) =>
     setDraft((current) => ({ ...current, whatsappProvider: key === "provider" ? (value as ProviderName) : current.whatsappProvider, whatsappChannel: { ...current.whatsappChannel, [key]: value } }));
 
   return (
     <div className="space-y-5">
-      <ScreenHeader title="Canal WhatsApp" subtitle="Configuración preparada para Meta Cloud API, Spoki, Twilio o 360dialog." />
+      <ScreenHeader title="Canal WhatsApp" subtitle="Modo WhatsApp Web manual." />
       <Card className="p-5">
         <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
-          El número emisor debe ser un WhatsApp Business verificado y conectado a un proveedor oficial. Los tokens y API keys reales se guardan en Functions o Secret Manager, nunca en frontend.
+          La app prepara enlaces de WhatsApp Web y no usa APIs de proveedores.
         </div>
         <div className="grid gap-4 md:grid-cols-2">
-          <label><span className="mb-1 block text-sm font-semibold">Proveedor</span><select className={inputClass} value={draft.whatsappChannel.provider} onChange={(event) => updateChannel("provider", event.target.value)}><option value="mock">Mock local</option><option value="meta_cloud">Meta Cloud API</option><option value="spoki">Spoki</option><option value="twilio">Twilio</option><option value="360dialog">360dialog</option></select></label>
+          <label><span className="mb-1 block text-sm font-semibold">Modo</span><select className={inputClass} value={draft.whatsappChannel.provider} onChange={(event) => updateChannel("provider", event.target.value)}><option value="whatsapp_web">WhatsApp Web manual</option><option value="mock">Mock local</option></select></label>
           <Field label="Número WhatsApp Business" value={draft.whatsappChannel.businessPhone} onChange={(value) => updateChannel("businessPhone", value)} />
           <Field label="Business account id" value={draft.whatsappChannel.businessAccountId} onChange={(value) => updateChannel("businessAccountId", value)} />
           <Field label="Phone number id" value={draft.whatsappChannel.phoneNumberId} onChange={(value) => updateChannel("phoneNumberId", value)} />
@@ -760,6 +845,131 @@ function WhatsappScreen({ settings, onSave }: { settings: Settings; onSave: (set
           <Button variant="danger" onClick={() => onSave({ ...draft, emergencyPaused: !draft.emergencyPaused })}>{draft.emergencyPaused ? "Reactivar envíos" : "Pausar todos los envíos"}</Button>
         </div>
       </Card>
+    </div>
+  );
+}
+
+function WhatsappScreen({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
+  const [draft, setDraft] = useState(settings);
+  const updateChannel = (key: keyof Settings["whatsappChannel"], value: string) =>
+    setDraft((current) => ({ ...current, whatsappProvider: key === "provider" ? (value as ProviderName) : current.whatsappProvider, whatsappChannel: { ...current.whatsappChannel, [key]: value } }));
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader title="Canal WhatsApp" subtitle="Modo WhatsApp Web: prepara mensajes y abre el chat para enviarlos manualmente." />
+      <Card className="p-5">
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+          La app no envía mensajes por API. Al abrir un contacto se carga WhatsApp Web con el teléfono y el texto preparado, y tú confirmas el envío desde tu sesión.
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label><span className="mb-1 block text-sm font-semibold">Modo</span><select className={inputClass} value={draft.whatsappChannel.provider} onChange={(event) => updateChannel("provider", event.target.value)}><option value="whatsapp_web">WhatsApp Web manual</option><option value="mock">Mock local</option></select></label>
+          <Field label="Número emisor visible" value={draft.whatsappChannel.businessPhone} onChange={(value) => updateChannel("businessPhone", value)} />
+          <Info label="Estado" value={draft.whatsappChannel.provider === "whatsapp_web" ? "manual" : draft.whatsappChannel.connectionStatus} />
+          <Info label="Confirmación" value="Se marca enviado después de pulsar enviar en WhatsApp Web" />
+          <Field label="Límite diario recomendado" value={String(draft.dailyLimit)} onChange={(value) => setDraft({ ...draft, dailyLimit: Number(value) })} />
+          <Field label="Límite horario recomendado" value={String(draft.hourlyLimit)} onChange={(value) => setDraft({ ...draft, hourlyLimit: Number(value) })} />
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button onClick={() => onSave({ ...draft, whatsappProvider: draft.whatsappChannel.provider, whatsappChannel: { ...draft.whatsappChannel, connectionStatus: draft.whatsappChannel.provider === "whatsapp_web" ? "conectado" : "simulado" } })}>Guardar configuración</Button>
+          <Button variant="secondary" icon={<ExternalLink size={18} />} onClick={() => openWhatsAppWebComposer(draft.whatsappChannel.businessPhone || "+34600000000", "Prueba de apertura desde Connessia Leads")}>Probar apertura</Button>
+          <Button variant="danger" onClick={() => onSave({ ...draft, emergencyPaused: !draft.emergencyPaused })}>{draft.emergencyPaused ? "Reactivar envíos" : "Pausar todos los envíos"}</Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function FirebaseScreen({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
+  const [draft, setDraft] = useState(settings.firebaseConfig);
+  const requiredFields: Array<keyof typeof draft> = ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"];
+  const complete = requiredFields.every((key) => Boolean(String(draft[key] ?? "").trim()));
+  const update = (key: keyof typeof draft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader title="Firebase" subtitle="Formulario para guardar los datos públicos del proyecto sin editar archivos .env." />
+      <Card className="p-5">
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
+          Copia estos valores desde Firebase Console, en Configuración del proyecto y tu app web. Se guardan en este navegador.
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="API key" value={draft.apiKey} onChange={(value) => update("apiKey", value)} />
+          <Field label="Auth domain" value={draft.authDomain} onChange={(value) => update("authDomain", value)} />
+          <Field label="Project ID" value={draft.projectId} onChange={(value) => update("projectId", value)} />
+          <Field label="Storage bucket" value={draft.storageBucket} onChange={(value) => update("storageBucket", value)} />
+          <Field label="Messaging sender ID" value={draft.messagingSenderId} onChange={(value) => update("messagingSenderId", value)} />
+          <Field label="App ID" value={draft.appId} onChange={(value) => update("appId", value)} />
+          <Field label="Measurement ID" value={draft.measurementId ?? ""} onChange={(value) => update("measurementId", value)} />
+          <Info label="Estado" value={complete ? "configuración completa" : "faltan campos"} />
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button
+            icon={<Database size={18} />}
+            onClick={() => onSave({ ...settings, firebaseConfig: { ...draft, updatedAt: new Date().toISOString() } })}
+          >
+            Guardar Firebase
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              setDraft({
+                apiKey: "",
+                authDomain: "",
+                projectId: "",
+                storageBucket: "",
+                messagingSenderId: "",
+                appId: "",
+                measurementId: ""
+              })
+            }
+          >
+            Limpiar formulario
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function TutorialScreen() {
+  const steps = [
+    {
+      title: "1. Configura Firebase",
+      text: "Abre la pestaña Firebase, pega los datos de tu app web y guarda. Esto evita tener que editar .env para probar la app."
+    },
+    {
+      title: "2. Importa o crea leads",
+      text: "En Importar puedes subir un CSV. Asegúrate de que el teléfono tenga prefijo internacional, por ejemplo +34600111222."
+    },
+    {
+      title: "3. Revisa consentimiento",
+      text: "Cada lead debe tener consentimiento WhatsApp. Sin ese check, la campaña no lo encola."
+    },
+    {
+      title: "4. Encola una campaña",
+      text: "En Campañas marca el checklist legal y pulsa Validar y encolar campaña. La cola crea los mensajes preparados."
+    },
+    {
+      title: "5. Envía con WhatsApp Web",
+      text: "Pulsa Abrir chat o Abrir siguiente. WhatsApp Web se abre con el mensaje escrito; revisa y pulsa enviar manualmente."
+    },
+    {
+      title: "6. Registra el envío y respuestas",
+      text: "Tras enviarlo, pulsa Marcar enviado. Si el cliente responde, usa Simulador para registrar SI, NO, BAJA o una respuesta manual."
+    }
+  ];
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader title="Mini tutorial" subtitle="Flujo básico para usar la app de principio a fin." />
+      <div className="grid gap-4 lg:grid-cols-2">
+        {steps.map((step) => (
+          <Card key={step.title} className="p-5">
+            <h3 className="font-bold text-slate-950">{step.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{step.text}</p>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

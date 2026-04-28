@@ -4,11 +4,13 @@ import {
   Bot,
   CalendarClock,
   ClipboardList,
+  Database,
   FileText,
   Gauge,
   History,
   Import,
   LayoutDashboard,
+  ListChecks,
   MessageSquareText,
   Settings,
   ShieldCheck,
@@ -27,6 +29,8 @@ export const navItems = [
   { id: "demos", label: "Demos", icon: CalendarClock },
   { id: "metricas", label: "Métricas", icon: BarChart3 },
   { id: "whatsapp", label: "Canal WhatsApp", icon: Settings },
+  { id: "firebase", label: "Firebase", icon: Database },
+  { id: "tutorial", label: "Tutorial", icon: ListChecks },
   { id: "exclusion", label: "Exclusión", icon: ShieldCheck },
   { id: "auditoria", label: "Auditoría", icon: History },
   { id: "simulador", label: "Simulador", icon: Bot }
@@ -67,7 +71,7 @@ export function Sidebar({ page, setPage }: { page: PageId; setPage: (page: PageI
         })}
       </nav>
       <div className="mt-6 rounded-lg border border-connessia-200 bg-connessia-50 p-3 text-sm text-connessia-900">
-        Solo WhatsApp Business Platform o proveedor oficial. El modo actual es simulación local.
+        Modo WhatsApp Web: la app prepara mensajes y el envío se confirma manualmente.
       </div>
     </aside>
   );

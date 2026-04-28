@@ -312,18 +312,27 @@ export const demoDemos: Demo[] = [
 ];
 
 export const demoSettings: Settings = {
-  whatsappProvider: "mock",
+  whatsappProvider: "whatsapp_web",
   dailyLimit: 120,
   hourlyLimit: 20,
   emergencyPaused: false,
   businessName: "Connessia",
   defaultCommercialName: "David",
   whatsappChannel: {
-    provider: "mock",
+    provider: "whatsapp_web",
     businessPhone: "+34955000000",
-    businessAccountId: "simulado",
-    phoneNumberId: "simulado",
-    webhookVerifyToken: "demo_verify_token",
-    connectionStatus: "simulado"
+    businessAccountId: "",
+    phoneNumberId: "",
+    webhookVerifyToken: "",
+    connectionStatus: "pendiente"
+  },
+  firebaseConfig: {
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: "",
+    measurementId: ""
   }
 };

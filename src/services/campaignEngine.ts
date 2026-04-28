@@ -98,7 +98,7 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
         item.id === campaign.id ? { ...item, estado: "activa", updatedAt: scheduledAt } : item
       )
     },
-    notice: `${targetLeads.length} mensajes validados y encolados en modo simulación.`
+    notice: `${targetLeads.length} mensajes validados y preparados para WhatsApp Web.`
   };
 }
 
@@ -150,7 +150,7 @@ export async function processQueue(state: EngineState, maxItems = 10): Promise<E
     });
   }
 
-  return { state: nextState, notice: `${pending.length} mensajes procesados por el proveedor mock.` };
+  return { state: nextState, notice: `${pending.length} mensajes procesados en modo local.` };
 }
 
 export function handleIncomingReply(state: EngineState, leadId: string, body: string): EngineResult {

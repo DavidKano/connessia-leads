@@ -71,6 +71,24 @@ export class MockWhatsAppProvider implements WhatsAppProvider {
   }
 }
 
+export function normalizeWhatsAppPhone(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("00")) return digits.slice(2);
+  return digits;
+}
+
+export function buildWhatsAppWebUrl(phone: string, body: string) {
+  const normalizedPhone = normalizeWhatsAppPhone(phone);
+  const message = encodeURIComponent(body);
+  return `https://web.whatsapp.com/send?phone=${normalizedPhone}&text=${message}`;
+}
+
+export function openWhatsAppWebComposer(phone: string, body: string) {
+  const url = buildWhatsAppWebUrl(phone, body);
+  window.open(url, "_blank", "noopener,noreferrer");
+  return url;
+}
+
 export function getWhatsAppProvider(): WhatsAppProvider {
   return new MockWhatsAppProvider();
 }

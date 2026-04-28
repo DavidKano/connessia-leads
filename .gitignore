@@ -14,6 +14,7 @@ vite.config.d.ts
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
+vite-dev.*.log
 
 .DS_Store
 Thumbs.db

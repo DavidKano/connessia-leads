@@ -1,18 +1,18 @@
 # Connessia Leads
 
-PWA/CRM comercial para gestionar leads de Connessia, importar prospectos, registrar consentimiento WhatsApp, lanzar campañas permitidas, simular respuestas SI/NO y preparar la integración con WhatsApp Business Platform o proveedores oficiales como Spoki, Twilio y 360dialog.
+PWA/CRM comercial para gestionar leads, importar prospectos, registrar consentimiento WhatsApp, preparar mensajes y abrir conversaciones en WhatsApp Web.
 
-La app no usa WhatsApp Web, Selenium, Puppeteer ni automatizaciones no oficiales. El proveedor activo por defecto es `mock`, pensado para probar el flujo sin llamadas externas.
+El modo principal es WhatsApp Web manual: la app deja el chat abierto con el telefono y el texto preparados, pero el envio lo confirma una persona desde WhatsApp Web.
 
 ## Stack
 
 - React + Vite + TypeScript
 - Tailwind CSS
 - Firebase Auth, Firestore, Storage y Hosting
-- Firebase Functions para webhook, cola y proveedor WhatsApp
+- Firebase Functions preparadas para backend futuro
 - PWA con manifest
 
-## Instalación
+## Instalacion
 
 ```bash
 npm install
@@ -26,46 +26,57 @@ npm --prefix functions install
 npm run functions:build
 ```
 
-## Variables de entorno
+## Configuracion Firebase
 
-Copia `.env.example` a `.env` y rellena Firebase:
+Puedes configurar Firebase desde la pestana `Firebase` de la app. Copia los valores de Firebase Console, en Configuracion del proyecto y tu app web:
 
-```bash
-VITE_FIREBASE_API_KEY=
-VITE_FIREBASE_AUTH_DOMAIN=
-VITE_FIREBASE_PROJECT_ID=
-VITE_FIREBASE_STORAGE_BUCKET=
-VITE_FIREBASE_MESSAGING_SENDER_ID=
-VITE_FIREBASE_APP_ID=
-```
+- API key
+- Auth domain
+- Project ID
+- Storage bucket
+- Messaging sender ID
+- App ID
+- Measurement ID, si lo tienes
 
-Los secretos de WhatsApp deben configurarse en backend o Secret Manager, no en frontend:
+Los datos se guardan en este navegador para no tener que editar `.env` mientras pruebas.
 
-```bash
-WHATSAPP_PROVIDER=mock
-WHATSAPP_ACCESS_TOKEN=
-WHATSAPP_PHONE_NUMBER_ID=
-WHATSAPP_BUSINESS_ACCOUNT_ID=
-WHATSAPP_WEBHOOK_VERIFY_TOKEN=
-SPOKI_API_KEY=
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_WHATSAPP_FROM=
-```
+## Mini Tutorial
 
-## Modo demo
+1. Abre `Firebase` y pega los datos de tu app web de Firebase.
+2. Abre `Canal WhatsApp`, deja seleccionado `WhatsApp Web manual` y guarda.
+3. En `Importar`, sube un CSV de leads o crea leads manualmente en `Leads`.
+4. Revisa que los leads tengan telefono con prefijo internacional, por ejemplo `+34600111222`, y consentimiento WhatsApp.
+5. En `Campanas`, marca el checklist legal y pulsa `Validar y encolar campana`.
+6. En la cola, pulsa `Abrir chat` o `Abrir siguiente en WhatsApp Web`.
+7. WhatsApp Web se abrira con el texto preparado. Revisa el mensaje y pulsa enviar manualmente.
+8. Vuelve a la app y pulsa `Marcar enviado`.
+9. Si el cliente responde, usa `Simulador` para registrar `SI`, `NO`, `BAJA` o una respuesta ambigua.
 
-La aplicación arranca con datos locales y persistencia en `localStorage`. Puedes:
+## Modo Demo
+
+La aplicacion arranca con datos locales y persistencia en `localStorage`. Puedes:
 
 - Cambiar el rol demo entre `admin`, `comercial` y `visor`.
 - Importar `public/leads-ejemplo.csv`.
-- Validar una campaña con checklist RGPD/LSSI.
+- Validar una campana con checklist RGPD/LSSI.
 - Encolar mensajes.
-- Procesar la cola con el `MockWhatsAppProvider`.
+- Abrir cada mensaje en WhatsApp Web y marcarlo como enviado.
 - Simular respuestas `SI`, `NO`, `BAJA` o ambiguas.
-- Ver cómo se actualizan leads, tareas, exclusiones, mensajes y métricas.
+- Ver como se actualizan leads, tareas, exclusiones, mensajes y metricas.
 
-## Estructura principal
+## WhatsApp Web
+
+La abstraccion vive en `src/services/whatsappProvider.ts`.
+
+El enlace generado usa:
+
+```text
+https://web.whatsapp.com/send?phone=TELEFONO&text=MENSAJE
+```
+
+No hay tokens de WhatsApp, webhooks ni APIs en el frontend. Para enviar, una persona debe estar logueada en WhatsApp Web y pulsar enviar.
+
+## Estructura Principal
 
 ```text
 src/
@@ -104,65 +115,17 @@ Colecciones preparadas:
 - `assets`
 - `settings`
 
-Las reglas están en `firestore.rules`. Puntos clave:
-
-- Solo usuarios autenticados.
-- `admin` puede leer/escribir casi todo.
-- `comercial` solo ve leads asignados y actualiza campos comerciales.
-- `visor` solo lectura.
-- El frontend no puede escribir directamente en `messageQueue`, `messages` ni `auditLogs`.
-- Configuración sensible del proveedor queda fuera del frontend.
-
-## WhatsApp oficial
-
-La abstracción vive en:
-
-- Frontend: `src/services/whatsappProvider.ts`
-- Backend: `functions/src/providers/whatsappProvider.ts`
-
-Interfaz:
-
-```ts
-interface WhatsAppProvider {
-  sendTemplateMessage(params): Promise<SendResult>;
-  sendTextMessage(params): Promise<SendResult>;
-  sendMediaMessage(params): Promise<SendResult>;
-  verifyWebhook(req): boolean;
-  parseIncomingMessage(req): IncomingMessage | null;
-}
-```
-
-Implementado:
-
-- `MockWhatsAppProvider`
-
-Preparados con TODOs seguros:
-
-- `MetaCloudWhatsAppProvider`
-- `SpokiWhatsAppProvider`
-- `TwilioWhatsAppProvider`
-- `Dialog360WhatsAppProvider`
-
-Para producción debes:
-
-1. Verificar el número en WhatsApp Business.
-2. Configurar el proveedor oficial.
-3. Guardar tokens en Functions/Secret Manager.
-4. Usar plantillas aprobadas para mensajes iniciales.
-5. Configurar el webhook `whatsappWebhook`.
-6. Activar `processMessageQueue`.
-
 ## Compliance
 
 La app aplica estas barreras:
 
 - No encola mensajes sin consentimiento.
-- No envía a bajas, bloqueados o teléfonos inválidos.
+- No envia a bajas, bloqueados o telefonos invalidos.
 - Consulta `doNotContact`.
 - Exige plantilla inicial aprobada.
-- Exige checklist legal antes de activar campaña.
-- Registra mensajes, respuestas, tareas y auditoría.
-- Corta automatización ante `BAJA`, `STOP`, `NO QUIERO` y equivalentes.
+- Exige checklist legal antes de activar campana.
+- Registra mensajes, respuestas, tareas y auditoria.
+- Corta automatizacion ante `BAJA`, `STOP`, `NO QUIERO` y equivalentes.
 
 ## Deploy Firebase
 
@@ -171,5 +134,3 @@ npm run build
 npm run functions:build
 firebase deploy
 ```
-
-Antes de desplegar, crea usuarios en Firebase Auth y documentos en `users` con `role`.

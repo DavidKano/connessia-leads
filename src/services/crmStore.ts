@@ -63,7 +63,24 @@ const initialState: CrmState = {
 function loadState() {
   try {
     const raw = localStorage.getItem(storageKey);
-    return raw ? ({ ...initialState, ...JSON.parse(raw) } as CrmState) : initialState;
+    if (!raw) return initialState;
+    const parsed = JSON.parse(raw) as Partial<CrmState>;
+    return {
+      ...initialState,
+      ...parsed,
+      settings: {
+        ...initialState.settings,
+        ...parsed.settings,
+        whatsappChannel: {
+          ...initialState.settings.whatsappChannel,
+          ...parsed.settings?.whatsappChannel
+        },
+        firebaseConfig: {
+          ...initialState.settings.firebaseConfig,
+          ...parsed.settings?.firebaseConfig
+        }
+      }
+    } as CrmState;
   } catch {
     return initialState;
   }
@@ -71,7 +88,7 @@ function loadState() {
 
 export function useCrmStore() {
   const [state, setState] = useState<CrmState>(() => loadState());
-  const [toast, setToast] = useState("Modo demo activo. No se hacen llamadas externas a WhatsApp.");
+  const [toast, setToast] = useState("Modo WhatsApp Web activo. La app prepara mensajes y tú confirmas el envío.");
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(state));
@@ -114,7 +131,7 @@ export function useCrmStore() {
   }
 
   function updateSettings(settings: Settings) {
-    updateState({ ...state, settings }, "Configuración guardada en modo demo.");
+    updateState({ ...state, settings }, "Configuración guardada en este navegador.");
   }
 
   function addDoNotContact(entry: Omit<DoNotContact, "id" | "createdAt">) {

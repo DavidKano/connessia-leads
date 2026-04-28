@@ -40,7 +40,7 @@ export type TemplateStatus =
   | "pausada";
 
 export type CampaignStatus = "borrador" | "activa" | "pausada" | "finalizada";
-export type ProviderName = "mock" | "meta_cloud" | "spoki" | "twilio" | "360dialog";
+export type ProviderName = "whatsapp_web" | "mock";
 export type QueueStatus = "pending" | "processing" | "sent" | "failed" | "cancelled";
 export type Direction = "inbound" | "outbound";
 export type TaskStatus = "pendiente" | "hecha" | "cancelada";
@@ -204,6 +204,17 @@ export interface CommercialAsset {
   createdAt: string;
 }
 
+export interface FirebaseClientConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  storageBucket: string;
+  messagingSenderId: string;
+  appId: string;
+  measurementId?: string;
+  updatedAt?: string;
+}
+
 export interface Settings {
   whatsappProvider: ProviderName;
   dailyLimit: number;
@@ -219,6 +230,7 @@ export interface Settings {
     webhookVerifyToken: string;
     connectionStatus: "simulado" | "pendiente" | "conectado" | "error";
   };
+  firebaseConfig: FirebaseClientConfig;
 }
 
 export interface Metrics {
