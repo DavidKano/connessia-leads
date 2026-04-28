@@ -57,7 +57,9 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
     const zoneMatch = campaign.segmento.zonas.length === 0 || campaign.segmento.zonas.includes(lead.zona);
     const sectorMatch =
       campaign.segmento.sectores.length === 0 || campaign.segmento.sectores.includes(lead.sector);
-    return zoneMatch && sectorMatch && !canSendToLead(lead, state.doNotContact);
+    const groupMatch =
+      campaign.segmento.grupoIds.length === 0 || campaign.segmento.grupoIds.some((groupId) => lead.grupoIds.includes(groupId));
+    return zoneMatch && sectorMatch && groupMatch && !canSendToLead(lead, state.doNotContact);
   });
 
   const scheduledAt = new Date().toISOString();

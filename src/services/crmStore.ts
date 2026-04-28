@@ -4,6 +4,7 @@ import {
   demoCampaigns,
   demoDemos,
   demoDoNotContact,
+  demoLeadGroups,
   demoLeads,
   demoMessages,
   demoQueue,
@@ -19,6 +20,7 @@ import type {
   Demo,
   DoNotContact,
   Lead,
+  LeadGroup,
   Message,
   MessageTemplate,
   Metrics,
@@ -32,6 +34,7 @@ export interface CrmState {
   users: AppUser[];
   currentUser: AppUser;
   leads: Lead[];
+  leadGroups: LeadGroup[];
   templates: MessageTemplate[];
   campaigns: Campaign[];
   messages: Message[];
@@ -49,6 +52,7 @@ const initialState: CrmState = {
   users: demoUsers,
   currentUser: demoUsers[0],
   leads: demoLeads,
+  leadGroups: demoLeadGroups,
   templates: demoTemplates,
   campaigns: demoCampaigns,
   messages: demoMessages,
@@ -68,6 +72,17 @@ function loadState() {
     return {
       ...initialState,
       ...parsed,
+      leads: (parsed.leads ?? initialState.leads).map((lead) => ({
+        ...lead,
+        grupoIds: lead.grupoIds ?? []
+      })),
+      campaigns: (parsed.campaigns ?? initialState.campaigns).map((campaign) => ({
+        ...campaign,
+        segmento: {
+          ...campaign.segmento,
+          grupoIds: campaign.segmento.grupoIds ?? []
+        }
+      })),
       settings: {
         ...initialState.settings,
         ...parsed.settings,
@@ -114,6 +129,51 @@ export function useCrmStore() {
     updateState({ ...state, leads: nextLeads }, exists ? "Lead actualizado." : "Lead creado.");
   }
 
+  function deleteLead(leadId: string) {
+    updateState(
+      {
+        ...state,
+        leads: state.leads.filter((lead) => lead.id !== leadId),
+        messages: state.messages.filter((message) => message.leadId !== leadId),
+        queue: state.queue.filter((item) => item.leadId !== leadId),
+        tasks: state.tasks.filter((task) => task.leadId !== leadId),
+        demos: state.demos.filter((demo) => demo.leadId !== leadId)
+      },
+      "Lead eliminado."
+    );
+  }
+
+  function upsertLeadGroup(group: LeadGroup) {
+    const exists = state.leadGroups.some((item) => item.id === group.id);
+    updateState(
+      {
+        ...state,
+        leadGroups: exists
+          ? state.leadGroups.map((item) => (item.id === group.id ? group : item))
+          : [{ ...group, id: group.id || crypto.randomUUID(), createdAt: group.createdAt || new Date().toISOString() }, ...state.leadGroups]
+      },
+      exists ? "Grupo actualizado." : "Grupo creado."
+    );
+  }
+
+  function deleteLeadGroup(groupId: string) {
+    updateState(
+      {
+        ...state,
+        leadGroups: state.leadGroups.filter((group) => group.id !== groupId),
+        leads: state.leads.map((lead) => ({ ...lead, grupoIds: lead.grupoIds.filter((id) => id !== groupId) })),
+        campaigns: state.campaigns.map((campaign) => ({
+          ...campaign,
+          segmento: {
+            ...campaign.segmento,
+            grupoIds: campaign.segmento.grupoIds.filter((id) => id !== groupId)
+          }
+        }))
+      },
+      "Grupo eliminado."
+    );
+  }
+
   function importLeads(leads: Lead[]) {
     updateState(
       { ...state, leads: [...leads, ...state.leads] },
@@ -158,6 +218,40 @@ export function useCrmStore() {
     );
   }
 
+  function upsertTask(task: Task) {
+    const exists = state.tasks.some((item) => item.id === task.id);
+    updateState(
+      {
+        ...state,
+        tasks: exists
+          ? state.tasks.map((item) => (item.id === task.id ? task : item))
+          : [{ ...task, id: task.id || crypto.randomUUID(), createdAt: task.createdAt || new Date().toISOString() }, ...state.tasks]
+      },
+      exists ? "Tarea actualizada." : "Tarea creada."
+    );
+  }
+
+  function deleteTask(taskId: string) {
+    updateState({ ...state, tasks: state.tasks.filter((task) => task.id !== taskId) }, "Tarea eliminada.");
+  }
+
+  function upsertDemo(demo: Demo) {
+    const exists = state.demos.some((item) => item.id === demo.id);
+    updateState(
+      {
+        ...state,
+        demos: exists
+          ? state.demos.map((item) => (item.id === demo.id ? demo : item))
+          : [{ ...demo, id: demo.id || crypto.randomUUID(), createdAt: demo.createdAt || new Date().toISOString() }, ...state.demos]
+      },
+      exists ? "Demo actualizada." : "Demo creada."
+    );
+  }
+
+  function deleteDemo(demoId: string) {
+    updateState({ ...state, demos: state.demos.filter((demo) => demo.id !== demoId) }, "Demo eliminada.");
+  }
+
   return {
     state,
     metrics,
@@ -166,12 +260,19 @@ export function useCrmStore() {
     updateState,
     setRole,
     upsertLead,
+    deleteLead,
     importLeads,
     updateLeadStatus,
     updateSettings,
     addDoNotContact,
     addTemplate,
-    updateCampaign
+    updateCampaign,
+    upsertLeadGroup,
+    deleteLeadGroup,
+    upsertTask,
+    deleteTask,
+    upsertDemo,
+    deleteDemo
   };
 }
 

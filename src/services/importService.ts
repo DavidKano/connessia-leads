@@ -127,6 +127,7 @@ export function buildImportPreview(rows: Record<string, string>[], existingLeads
       notas: row.notas ?? "",
       estado: hasConsent ? "consentimiento_obtenido" : "pendiente_consentimiento",
       etiquetas: [],
+      grupoIds: [],
       comercialAsignado: row.comercial_asignado ?? "",
       tieneConsentimientoWhatsapp: hasConsent,
       fechaConsentimiento: hasConsent ? row.fecha_consentimiento || new Date().toISOString() : undefined,

@@ -45,12 +45,14 @@ Los datos se guardan en este navegador para no tener que editar `.env` mientras 
 1. Abre `Firebase` y pega los datos de tu app web de Firebase.
 2. Abre `Canal WhatsApp`, deja seleccionado `WhatsApp Web manual` y guarda.
 3. En `Importar`, sube un CSV de leads o crea leads manualmente en `Leads`.
-4. Revisa que los leads tengan telefono con prefijo internacional, por ejemplo `+34600111222`, y consentimiento WhatsApp.
-5. En `Campanas`, marca el checklist legal y pulsa `Validar y encolar campana`.
-6. En la cola, pulsa `Abrir chat` o `Abrir siguiente en WhatsApp Web`.
-7. WhatsApp Web se abrira con el texto preparado. Revisa el mensaje y pulsa enviar manualmente.
-8. Vuelve a la app y pulsa `Marcar enviado`.
-9. Si el cliente responde, usa `Simulador` para registrar `SI`, `NO`, `BAJA` o una respuesta ambigua.
+4. Crea grupos en `Leads` y asigna cada lead a uno o varios grupos.
+5. Revisa que los leads tengan telefono con prefijo internacional, por ejemplo `+34600111222`, y consentimiento WhatsApp.
+6. En `Campanas`, selecciona los grupos incluidos, marca el checklist legal y pulsa `Validar y encolar campana`.
+7. En la cola, pulsa `Abrir chat` o `Abrir siguiente en WhatsApp Web`.
+8. WhatsApp Web se abrira con el texto preparado. Revisa el mensaje y pulsa enviar manualmente.
+9. Vuelve a la app y pulsa `Marcar enviado`.
+10. Gestiona `Tareas` y `Demos` desde sus pantallas: puedes crear, editar y borrar registros.
+11. Si el cliente responde, usa `Simulador` para registrar `SI`, `NO`, `BAJA` o una respuesta ambigua.
 
 ## Modo Demo
 
@@ -58,9 +60,12 @@ La aplicacion arranca con datos locales y persistencia en `localStorage`. Puedes
 
 - Cambiar el rol demo entre `admin`, `comercial` y `visor`.
 - Importar `public/leads-ejemplo.csv`.
+- Crear grupos de leads y asignarlos a campanas.
+- Eliminar leads junto con sus tareas, demos, mensajes y cola relacionada.
 - Validar una campana con checklist RGPD/LSSI.
 - Encolar mensajes.
 - Abrir cada mensaje en WhatsApp Web y marcarlo como enviado.
+- Crear, editar y borrar tareas comerciales y demos.
 - Simular respuestas `SI`, `NO`, `BAJA` o ambiguas.
 - Ver como se actualizan leads, tareas, exclusiones, mensajes y metricas.
 

@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Database,
+  Edit3,
   ExternalLink,
   FileUp,
   MessageCircle,
@@ -15,6 +16,8 @@ import {
   Search,
   Send,
   ShieldCheck,
+  Tags,
+  Trash2,
   Upload,
   Users
 } from "lucide-react";
@@ -30,7 +33,7 @@ import { enqueueCampaign, handleIncomingReply, processQueue } from "./services/c
 import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
-import type { Campaign, Lead, MessageTemplate, ProviderName, QueueItem, Settings } from "./types/domain";
+import type { Campaign, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task } from "./types/domain";
 import { formatDate, formatDateTime, percent } from "./utils/formatters";
 
 const inputClass =
@@ -60,10 +63,50 @@ function emptyLead(): Lead {
     notas: "",
     estado: "nuevo",
     etiquetas: [],
+    grupoIds: [],
     comercialAsignado: "admin-demo",
     tieneConsentimientoWhatsapp: false,
     createdAt: now,
     updatedAt: now
+  };
+}
+
+function emptyLeadGroup(): LeadGroup {
+  return {
+    id: crypto.randomUUID(),
+    nombre: "",
+    descripcion: "",
+    color: "#0f766e",
+    createdAt: new Date().toISOString()
+  };
+}
+
+function emptyTask(leadId = "", assignedTo = "admin-demo"): Task {
+  return {
+    id: crypto.randomUUID(),
+    leadId,
+    title: "",
+    description: "",
+    dueDate: new Date().toISOString().slice(0, 10),
+    assignedTo,
+    status: "pendiente",
+    priority: "media",
+    createdAt: new Date().toISOString()
+  };
+}
+
+function emptyDemo(leadId = "", assignedTo = "admin-demo"): Demo {
+  return {
+    id: crypto.randomUUID(),
+    leadId,
+    date: new Date().toISOString().slice(0, 10),
+    time: "10:00",
+    assignedTo,
+    status: "programada",
+    notes: "",
+    meetingUrl: "",
+    result: "",
+    createdAt: new Date().toISOString()
   };
 }
 
@@ -94,8 +137,12 @@ export default function App() {
               <LeadsScreen
                 leads={visibleLeads}
                 users={state.users}
+                groups={state.leadGroups}
                 onSelect={setSelectedLeadId}
                 onSave={store.upsertLead}
+                onDelete={store.deleteLead}
+                onSaveGroup={store.upsertLeadGroup}
+                onDeleteGroup={store.deleteLeadGroup}
               />
             )}
             {page === "importar" && <ImportScreen leads={state.leads} onImport={store.importLeads} />}
@@ -108,8 +155,8 @@ export default function App() {
             )}
             {page === "plantillas" && <TemplatesScreen templates={state.templates} onAdd={store.addTemplate} />}
             {page === "assets" && <AssetsScreen state={state} />}
-            {page === "tareas" && <TasksScreen state={state} />}
-            {page === "demos" && <DemosScreen state={state} />}
+            {page === "tareas" && <TasksScreen state={state} onSave={store.upsertTask} onDelete={store.deleteTask} />}
+            {page === "demos" && <DemosScreen state={state} onSave={store.upsertDemo} onDelete={store.deleteDemo} />}
             {page === "metricas" && <MetricsScreen metrics={metrics} state={state} />}
             {page === "whatsapp" && <WhatsappScreen settings={state.settings} onSave={store.updateSettings} />}
             {page === "firebase" && <FirebaseScreen settings={state.settings} onSave={store.updateSettings} />}
@@ -265,27 +312,39 @@ function LeadMiniTable({ leads }: { leads: Lead[] }) {
 function LeadsScreen({
   leads,
   users,
+  groups,
   onSelect,
-  onSave
+  onSave,
+  onDelete,
+  onSaveGroup,
+  onDeleteGroup
 }: {
   leads: Lead[];
   users: ReturnType<typeof useCrmStore>["state"]["users"];
+  groups: LeadGroup[];
   onSelect: (id: string) => void;
   onSave: (lead: Lead) => void;
+  onDelete: (id: string) => void;
+  onSaveGroup: (group: LeadGroup) => void;
+  onDeleteGroup: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [sector, setSector] = useState("");
   const [city, setCity] = useState("");
+  const [groupId, setGroupId] = useState("");
   const [editing, setEditing] = useState<Lead | null>(null);
+  const [editingGroup, setEditingGroup] = useState<LeadGroup | null>(null);
 
   const filtered = leads.filter((lead) => {
-    const text = `${lead.nombreNegocio} ${lead.personaContacto} ${lead.telefono} ${lead.email} ${lead.zona}`.toLowerCase();
+    const groupNames = groups.filter((group) => lead.grupoIds.includes(group.id)).map((group) => group.nombre).join(" ");
+    const text = `${lead.nombreNegocio} ${lead.personaContacto} ${lead.telefono} ${lead.email} ${lead.zona} ${groupNames}`.toLowerCase();
     return (
       text.includes(query.toLowerCase()) &&
       (!status || lead.estado === status) &&
       (!sector || lead.sector === sector) &&
-      (!city || lead.ciudad === city)
+      (!city || lead.ciudad === city) &&
+      (!groupId || lead.grupoIds.includes(groupId))
     );
   });
 
@@ -293,11 +352,11 @@ function LeadsScreen({
     <div className="space-y-5">
       <ScreenHeader
         title="Gestión de leads"
-        subtitle="CRM comercial con consentimiento, estados, notas e historial."
+        subtitle="CRM comercial con grupos, consentimiento, estados, notas e historial."
         action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead())}>Nuevo lead</Button>}
       />
       <Card className="p-4">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           <label className="relative">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
             <input className={`${inputClass} pl-10`} placeholder="Buscar por negocio, zona, teléfono..." value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -314,17 +373,43 @@ function LeadsScreen({
             <option value="">Todas las ciudades</option>
             {Array.from(new Set(leads.map((lead) => lead.ciudad).filter(Boolean))).map((item) => <option key={item}>{item}</option>)}
           </select>
+          <select className={inputClass} value={groupId} onChange={(event) => setGroupId(event.target.value)}>
+            <option value="">Todos los grupos</option>
+            {groups.map((group) => <option key={group.id} value={group.id}>{group.nombre}</option>)}
+          </select>
+        </div>
+      </Card>
+      <Card className="p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-slate-950">Grupos de leads</h3>
+            <p className="text-sm text-slate-500">Usalos para seleccionar clientes concretos al crear una campana.</p>
+          </div>
+          <Button icon={<Tags size={18} />} onClick={() => setEditingGroup(emptyLeadGroup())}>Nuevo grupo</Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {groups.map((group) => (
+            <div key={group.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: group.color }} />
+              <button className="font-semibold text-slate-800" onClick={() => setGroupId(group.id)}>{group.nombre}</button>
+              <span className="text-xs text-slate-500">{leads.filter((lead) => lead.grupoIds.includes(group.id)).length}</span>
+              <button className="text-slate-400 hover:text-slate-700" onClick={() => setEditingGroup(group)} title="Editar grupo"><Edit3 size={15} /></button>
+              <button className="text-slate-400 hover:text-coral-700" onClick={() => onDeleteGroup(group.id)} title="Eliminar grupo"><Trash2 size={15} /></button>
+            </div>
+          ))}
+          {groups.length === 0 && <p className="text-sm text-slate-500">Aun no hay grupos.</p>}
         </div>
       </Card>
       <Card className="overflow-hidden">
         <div className="overflow-x-auto table-scroll">
-          <table className="w-full min-w-[1100px] text-left text-sm">
+          <table className="w-full min-w-[1250px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3">Negocio</th>
                 <th>Sector</th>
                 <th>Zona</th>
                 <th>Ciudad</th>
+                <th>Grupos</th>
                 <th>Teléfono</th>
                 <th>Email</th>
                 <th>Estado</th>
@@ -344,13 +429,25 @@ function LeadsScreen({
                   <td>{lead.sector}</td>
                   <td>{lead.zona}</td>
                   <td>{lead.ciudad}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-1">
+                      {groups.filter((group) => lead.grupoIds.includes(group.id)).map((group) => (
+                        <span key={group.id} className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{group.nombre}</span>
+                      ))}
+                    </div>
+                  </td>
                   <td>{lead.telefono}</td>
                   <td>{lead.email}</td>
                   <td><Badge value={lead.estado} /></td>
                   <td>{lead.tieneConsentimientoWhatsapp ? "Sí" : "No"}</td>
                   <td>{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? lead.comercialAsignado}</td>
                   <td>{formatDateTime(lead.ultimoContacto)}</td>
-                  <td><Button variant="secondary" onClick={() => setEditing(lead)}>Editar</Button></td>
+                  <td>
+                    <div className="flex gap-2">
+                      <Button variant="secondary" icon={<Edit3 size={16} />} onClick={() => setEditing(lead)}>Editar</Button>
+                      <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar este lead y sus tareas/demos/mensajes?") && onDelete(lead.id)}>Eliminar</Button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -361,10 +458,21 @@ function LeadsScreen({
         <LeadFormModal
           lead={editing}
           users={users}
+          groups={groups}
           onClose={() => setEditing(null)}
           onSave={(lead) => {
             onSave(lead);
             setEditing(null);
+          }}
+        />
+      )}
+      {editingGroup && (
+        <LeadGroupFormModal
+          group={editingGroup}
+          onClose={() => setEditingGroup(null)}
+          onSave={(group) => {
+            onSaveGroup(group);
+            setEditingGroup(null);
           }}
         />
       )}
@@ -375,11 +483,13 @@ function LeadsScreen({
 function LeadFormModal({
   lead,
   users,
+  groups,
   onClose,
   onSave
 }: {
   lead: Lead;
   users: ReturnType<typeof useCrmStore>["state"]["users"];
+  groups: LeadGroup[];
   onClose: () => void;
   onSave: (lead: Lead) => void;
 }) {
@@ -398,6 +508,30 @@ function LeadFormModal({
         <Field label="Zona" value={draft.zona} onChange={(value) => update("zona", value)} />
         <Field label="Sector" value={draft.sector} onChange={(value) => update("sector", value)} />
         <Field label="Web" value={draft.web} onChange={(value) => update("web", value)} />
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Grupos</span>
+          <div className="grid gap-2 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
+            {groups.map((group) => (
+              <label key={group.id} className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={draft.grupoIds.includes(group.id)}
+                  onChange={(event) =>
+                    update(
+                      "grupoIds",
+                      event.target.checked
+                        ? [...draft.grupoIds, group.id]
+                        : draft.grupoIds.filter((id) => id !== group.id)
+                    )
+                  }
+                />
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: group.color }} />
+                {group.nombre}
+              </label>
+            ))}
+            {groups.length === 0 && <span className="text-sm text-slate-500">Crea grupos desde la pantalla de leads.</span>}
+          </div>
+        </label>
         <label className="md:col-span-2">
           <span className="mb-1 block text-sm font-semibold text-slate-700">Dirección</span>
           <input className={inputClass} value={draft.direccion} onChange={(event) => update("direccion", event.target.value)} />
@@ -428,6 +562,38 @@ function LeadFormModal({
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="secondary" onClick={onClose}>Cancelar</Button>
         <Button onClick={() => onSave(draft)}>Guardar</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function LeadGroupFormModal({
+  group,
+  onClose,
+  onSave
+}: {
+  group: LeadGroup;
+  onClose: () => void;
+  onSave: (group: LeadGroup) => void;
+}) {
+  const [draft, setDraft] = useState(group);
+
+  return (
+    <Modal title="Grupo de leads" onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Nombre del grupo" value={draft.nombre} onChange={(value) => setDraft({ ...draft, nombre: value })} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Color</span>
+          <input className={`${inputClass} h-10 p-1`} type="color" value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} />
+        </label>
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Descripcion</span>
+          <textarea className={inputClass} rows={3} value={draft.descripcion ?? ""} onChange={(event) => setDraft({ ...draft, descripcion: event.target.value })} />
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => onSave({ ...draft, nombre: draft.nombre.trim() || "Grupo sin nombre" })}>Guardar grupo</Button>
       </div>
     </Modal>
   );
@@ -575,6 +741,20 @@ function CampaignsScreen({
     updateState(result.state as typeof state, result.notice);
   }
 
+  function toggleCampaignGroup(groupId: string, checked: boolean) {
+    if (!campaign) return;
+    onCampaignUpdate({
+      ...campaign,
+      segmento: {
+        ...campaign.segmento,
+        grupoIds: checked
+          ? [...campaign.segmento.grupoIds, groupId]
+          : campaign.segmento.grupoIds.filter((id) => id !== groupId)
+      },
+      updatedAt: new Date().toISOString()
+    });
+  }
+
   function openQueueItem(item: QueueItem) {
     openWhatsAppWebComposer(item.phone, item.body);
     updateState(
@@ -659,8 +839,26 @@ function CampaignsScreen({
               <div className="grid gap-3 md:grid-cols-2">
                 <Info label="Zonas" value={campaign.segmento.zonas.join(", ")} />
                 <Info label="Sectores" value={campaign.segmento.sectores.join(", ")} />
+                <Info label="Grupos" value={campaign.segmento.grupoIds.length ? campaign.segmento.grupoIds.map((id) => state.leadGroups.find((group) => group.id === id)?.nombre ?? id).join(", ") : "Todos"} />
                 <Info label="Seguimientos" value={`${campaign.maxSeguimientos} en ${campaign.diasParaSeguimiento} días`} />
                 <Info label="Plantilla inicial" value={state.templates.find((tpl) => tpl.id === campaign.plantillaInicialId)?.nombre ?? ""} />
+              </div>
+              <div className="rounded-lg border border-slate-200 p-4">
+                <h4 className="font-bold text-slate-950">Grupos incluidos</h4>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {state.leadGroups.map((group) => (
+                    <label key={group.id} className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={campaign.segmento.grupoIds.includes(group.id)}
+                        onChange={(event) => toggleCampaignGroup(group.id, event.target.checked)}
+                      />
+                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: group.color }} />
+                      {group.nombre}
+                    </label>
+                  ))}
+                  {state.leadGroups.length === 0 && <p className="text-sm text-slate-500">Crea grupos desde Leads para usarlos aqui.</p>}
+                </div>
               </div>
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <h4 className="font-bold text-amber-950">Checklist antes de activar</h4>
@@ -774,12 +972,251 @@ function AssetsScreen({ state }: { state: ReturnType<typeof useCrmStore>["state"
   );
 }
 
-function TasksScreen({ state }: { state: ReturnType<typeof useCrmStore>["state"] }) {
+function LegacyTasksScreen({ state }: { state: ReturnType<typeof useCrmStore>["state"] }) {
   return <ListScreen title="Tareas comerciales" subtitle="Seguimiento operativo de leads interesados." items={state.tasks.map((task) => ({ id: task.id, title: task.title, meta: `${state.leads.find((lead) => lead.id === task.leadId)?.nombreNegocio ?? "Lead"} · ${formatDate(task.dueDate)} · ${task.priority}`, status: task.status }))} />;
 }
 
-function DemosScreen({ state }: { state: ReturnType<typeof useCrmStore>["state"] }) {
+function LegacyDemosScreen({ state }: { state: ReturnType<typeof useCrmStore>["state"] }) {
   return <ListScreen title="Agenda de demos" subtitle="Reuniones comerciales programadas y resultado." items={state.demos.map((demo) => ({ id: demo.id, title: state.leads.find((lead) => lead.id === demo.leadId)?.nombreNegocio ?? "Demo", meta: `${formatDate(demo.date)} · ${demo.time} · ${demo.meetingUrl ?? "Sin enlace"}`, status: demo.status }))} />;
+}
+
+function TasksScreen({
+  state,
+  onSave,
+  onDelete
+}: {
+  state: ReturnType<typeof useCrmStore>["state"];
+  onSave: (task: Task) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState<Task | null>(null);
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader
+        title="Tareas comerciales"
+        subtitle="Seguimiento operativo de llamadas, revisiones y proximas acciones."
+        action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyTask(state.leads[0]?.id, state.currentUser.uid))}>Nueva tarea</Button>}
+      />
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto table-scroll">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr><th className="px-4 py-3">Tarea</th><th>Lead</th><th>Fecha</th><th>Prioridad</th><th>Estado</th><th>Asignado</th><th>Acciones</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {state.tasks.map((task) => (
+                <tr key={task.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3"><strong>{task.title}</strong><p className="text-xs text-slate-500">{task.description}</p></td>
+                  <td>{state.leads.find((lead) => lead.id === task.leadId)?.nombreNegocio ?? "Lead eliminado"}</td>
+                  <td>{formatDate(task.dueDate)}</td>
+                  <td>{task.priority}</td>
+                  <td><Badge value={task.status} /></td>
+                  <td>{state.users.find((user) => user.uid === task.assignedTo)?.nombre ?? task.assignedTo}</td>
+                  <td>
+                    <div className="flex gap-2">
+                      <Button variant="secondary" icon={<Edit3 size={16} />} onClick={() => setEditing(task)}>Editar</Button>
+                      <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar esta tarea?") && onDelete(task.id)}>Eliminar</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {state.tasks.length === 0 && <tr><td className="px-4 py-6 text-slate-500" colSpan={7}>No hay tareas.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      {editing && (
+        <TaskFormModal
+          task={editing}
+          leads={state.leads}
+          users={state.users}
+          onClose={() => setEditing(null)}
+          onSave={(task) => {
+            onSave(task);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function DemosScreen({
+  state,
+  onSave,
+  onDelete
+}: {
+  state: ReturnType<typeof useCrmStore>["state"];
+  onSave: (demo: Demo) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState<Demo | null>(null);
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader
+        title="Agenda de demos"
+        subtitle="Reuniones comerciales programadas, resultado y enlace."
+        action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyDemo(state.leads[0]?.id, state.currentUser.uid))}>Nueva demo</Button>}
+      />
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto table-scroll">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr><th className="px-4 py-3">Lead</th><th>Fecha</th><th>Hora</th><th>Asignado</th><th>Estado</th><th>Enlace</th><th>Acciones</th></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {state.demos.map((demo) => (
+                <tr key={demo.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3"><strong>{state.leads.find((lead) => lead.id === demo.leadId)?.nombreNegocio ?? "Lead eliminado"}</strong><p className="text-xs text-slate-500">{demo.notes}</p></td>
+                  <td>{formatDate(demo.date)}</td>
+                  <td>{demo.time}</td>
+                  <td>{state.users.find((user) => user.uid === demo.assignedTo)?.nombre ?? demo.assignedTo}</td>
+                  <td><Badge value={demo.status} /></td>
+                  <td>{demo.meetingUrl ? <a className="font-semibold text-connessia-700" href={demo.meetingUrl} target="_blank" rel="noreferrer">Abrir</a> : "Sin enlace"}</td>
+                  <td>
+                    <div className="flex gap-2">
+                      <Button variant="secondary" icon={<Edit3 size={16} />} onClick={() => setEditing(demo)}>Editar</Button>
+                      <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar esta demo?") && onDelete(demo.id)}>Eliminar</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {state.demos.length === 0 && <tr><td className="px-4 py-6 text-slate-500" colSpan={7}>No hay demos.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      {editing && (
+        <DemoFormModal
+          demo={editing}
+          leads={state.leads}
+          users={state.users}
+          onClose={() => setEditing(null)}
+          onSave={(demo) => {
+            onSave(demo);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TaskFormModal({
+  task,
+  leads,
+  users,
+  onClose,
+  onSave
+}: {
+  task: Task;
+  leads: Lead[];
+  users: ReturnType<typeof useCrmStore>["state"]["users"];
+  onClose: () => void;
+  onSave: (task: Task) => void;
+}) {
+  const [draft, setDraft] = useState(task);
+
+  return (
+    <Modal title="Tarea comercial" onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Titulo" value={draft.title} onChange={(value) => setDraft({ ...draft, title: value })} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Lead</span>
+          <select className={inputClass} value={draft.leadId} onChange={(event) => setDraft({ ...draft, leadId: event.target.value })}>
+            <option value="">Sin lead</option>
+            {leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.nombreNegocio}</option>)}
+          </select>
+        </label>
+        <Field label="Fecha" value={draft.dueDate} type="date" onChange={(value) => setDraft({ ...draft, dueDate: value })} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Asignado</span>
+          <select className={inputClass} value={draft.assignedTo} onChange={(event) => setDraft({ ...draft, assignedTo: event.target.value })}>
+            {users.map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Prioridad</span>
+          <select className={inputClass} value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as Task["priority"] })}>
+            {["baja", "media", "alta"].map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Estado</span>
+          <select className={inputClass} value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Task["status"] })}>
+            {["pendiente", "hecha", "cancelada"].map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Descripcion</span>
+          <textarea className={inputClass} rows={4} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => onSave({ ...draft, title: draft.title.trim() || "Tarea sin titulo" })}>Guardar tarea</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function DemoFormModal({
+  demo,
+  leads,
+  users,
+  onClose,
+  onSave
+}: {
+  demo: Demo;
+  leads: Lead[];
+  users: ReturnType<typeof useCrmStore>["state"]["users"];
+  onClose: () => void;
+  onSave: (demo: Demo) => void;
+}) {
+  const [draft, setDraft] = useState(demo);
+
+  return (
+    <Modal title="Demo" onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Lead</span>
+          <select className={inputClass} value={draft.leadId} onChange={(event) => setDraft({ ...draft, leadId: event.target.value })}>
+            <option value="">Sin lead</option>
+            {leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.nombreNegocio}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Asignado</span>
+          <select className={inputClass} value={draft.assignedTo} onChange={(event) => setDraft({ ...draft, assignedTo: event.target.value })}>
+            {users.map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
+          </select>
+        </label>
+        <Field label="Fecha" value={draft.date} type="date" onChange={(value) => setDraft({ ...draft, date: value })} />
+        <Field label="Hora" value={draft.time} type="time" onChange={(value) => setDraft({ ...draft, time: value })} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Estado</span>
+          <select className={inputClass} value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as Demo["status"] })}>
+            {["programada", "realizada", "cancelada"].map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <Field label="Enlace reunion" value={draft.meetingUrl ?? ""} onChange={(value) => setDraft({ ...draft, meetingUrl: value })} />
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Notas</span>
+          <textarea className={inputClass} rows={3} value={draft.notes ?? ""} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
+        </label>
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Resultado</span>
+          <textarea className={inputClass} rows={3} value={draft.result ?? ""} onChange={(event) => setDraft({ ...draft, result: event.target.value })} />
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => onSave(draft)}>Guardar demo</Button>
+      </div>
+    </Modal>
+  );
 }
 
 function MetricsScreen({ metrics, state }: { metrics: ReturnType<typeof useCrmStore>["metrics"]; state: ReturnType<typeof useCrmStore>["state"] }) {
@@ -1077,11 +1514,11 @@ function ScreenHeader({ title, subtitle, action }: { title: string; subtitle: st
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Field({ label, value, type = "text", onChange }: { label: string; value: string; type?: string; onChange: (value: string) => void }) {
   return (
     <label>
       <span className="mb-1 block text-sm font-semibold text-slate-700">{label}</span>
-      <input className={inputClass} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input className={inputClass} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }

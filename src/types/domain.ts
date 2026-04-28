@@ -70,6 +70,7 @@ export interface Lead {
   notas: string;
   estado: LeadStatus;
   etiquetas: string[];
+  grupoIds: string[];
   comercialAsignado: string;
   tieneConsentimientoWhatsapp: boolean;
   fechaConsentimiento?: string;
@@ -83,6 +84,14 @@ export interface Lead {
   proximaAccion?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LeadGroup {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  color: string;
+  createdAt: string;
 }
 
 export interface MessageTemplate {
@@ -106,6 +115,7 @@ export interface Campaign {
   segmento: {
     zonas: string[];
     sectores: string[];
+    grupoIds: string[];
     requireConsent: boolean;
   };
   estado: CampaignStatus;

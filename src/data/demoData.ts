@@ -5,6 +5,7 @@ import type {
   Demo,
   DoNotContact,
   Lead,
+  LeadGroup,
   Message,
   MessageTemplate,
   QueueItem,
@@ -56,6 +57,7 @@ export const demoLeads: Lead[] = [
     notas: "Tiene saturación de llamadas por la tarde.",
     estado: "consentimiento_obtenido",
     etiquetas: ["prioridad", "agenda_online"],
+    grupoIds: ["grupo-cita-previa"],
     comercialAsignado: "comercial-ana",
     tieneConsentimientoWhatsapp: true,
     fechaConsentimiento: "2026-04-18T10:20:00.000Z",
@@ -81,6 +83,7 @@ export const demoLeads: Lead[] = [
     notas: "Interés en recordatorios automáticos.",
     estado: "interesado",
     etiquetas: ["respondio_si"],
+    grupoIds: ["grupo-belleza"],
     comercialAsignado: "comercial-ana",
     tieneConsentimientoWhatsapp: true,
     fechaConsentimiento: "2026-04-20T12:10:00.000Z",
@@ -106,6 +109,7 @@ export const demoLeads: Lead[] = [
     notas: "Importado sin consentimiento.",
     estado: "pendiente_consentimiento",
     etiquetas: ["prospecto"],
+    grupoIds: ["grupo-educacion"],
     comercialAsignado: "admin-demo",
     tieneConsentimientoWhatsapp: false,
     ultimoContacto: "",
@@ -127,6 +131,7 @@ export const demoLeads: Lead[] = [
     notas: "Pidió no recibir más comunicaciones.",
     estado: "baja",
     etiquetas: ["exclusion"],
+    grupoIds: ["grupo-belleza"],
     comercialAsignado: "comercial-ana",
     tieneConsentimientoWhatsapp: true,
     fechaConsentimiento: "2026-04-16T08:30:00.000Z",
@@ -137,6 +142,30 @@ export const demoLeads: Lead[] = [
     proximaAccion: "No contactar",
     createdAt: now,
     updatedAt: now
+  }
+];
+
+export const demoLeadGroups: LeadGroup[] = [
+  {
+    id: "grupo-cita-previa",
+    nombre: "Negocios con cita previa",
+    descripcion: "Clinicas, fisioterapia y servicios que trabajan con agenda.",
+    color: "#0f766e",
+    createdAt: now
+  },
+  {
+    id: "grupo-belleza",
+    nombre: "Belleza y estetica",
+    descripcion: "Peluquerias, estetica y centros similares.",
+    color: "#be185d",
+    createdAt: now
+  },
+  {
+    id: "grupo-educacion",
+    nombre: "Educacion",
+    descripcion: "Academias y formacion.",
+    color: "#2563eb",
+    createdAt: now
   }
 ];
 
@@ -230,6 +259,7 @@ export const demoCampaigns: Campaign[] = [
     segmento: {
       zonas: ["Sevilla Este"],
       sectores: ["peluquería", "estética", "fisioterapia", "clínicas"],
+      grupoIds: ["grupo-cita-previa", "grupo-belleza"],
       requireConsent: true
     },
     estado: "borrador",
