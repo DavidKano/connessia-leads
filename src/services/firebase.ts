@@ -34,7 +34,11 @@ function getSavedFirebaseConfig(): FirebaseOptions | null {
   }
 }
 
-const firebaseConfig = getSavedFirebaseConfig() ?? envFirebaseConfig;
+function getFirebaseConfig() {
+  return getSavedFirebaseConfig() ?? envFirebaseConfig;
+}
+
+const firebaseConfig = getFirebaseConfig();
 
 export const firebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
 
@@ -42,3 +46,10 @@ export const app = firebaseConfigured ? (getApps()[0] ?? initializeApp(firebaseC
 export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
 export const storage = app ? getStorage(app) : null;
+
+export function getFirebaseDb() {
+  const config = getFirebaseConfig();
+  if (!config.apiKey || !config.projectId) return null;
+  const firebaseApp = getApps()[0] ?? initializeApp(config);
+  return getFirestore(firebaseApp);
+}

@@ -29,6 +29,7 @@ import type {
   Task,
   UserRole
 } from "../types/domain";
+import { deleteLeadFromFirestore, loadLeadsFromFirestore, saveLeadsToFirestore, saveLeadToFirestore } from "./firestoreLeads";
 import { normalizePhone } from "../utils/formatters";
 
 export interface CrmState {
@@ -110,6 +111,21 @@ export function useCrmStore() {
     localStorage.setItem(storageKey, JSON.stringify(state));
   }, [state]);
 
+  useEffect(() => {
+    loadLeadsFromFirestore()
+      .then((remoteLeads) => {
+        if (!remoteLeads || remoteLeads.length === 0) return;
+        setState((current) => ({
+          ...current,
+          leads: remoteLeads.map((lead) => ({ ...lead, grupoIds: lead.grupoIds ?? [] }))
+        }));
+        setToast(`${remoteLeads.length} leads cargados desde Firestore.`);
+      })
+      .catch((error) => {
+        setToast(`Firestore no pudo cargar leads: ${error instanceof Error ? error.message : "revisa reglas/configuracion"}.`);
+      });
+  }, []);
+
   const metrics = useMemo(() => calculateMetrics(state), [state]);
 
   function updateState(next: CrmState, notice?: string) {
@@ -125,10 +141,16 @@ export function useCrmStore() {
   function upsertLead(lead: Lead) {
     const normalizedLead = { ...lead, telefono: normalizePhone(lead.telefono) };
     const exists = state.leads.some((item) => item.id === lead.id);
+    const savedLead = exists
+      ? { ...normalizedLead, updatedAt: new Date().toISOString() }
+      : { ...normalizedLead, id: normalizedLead.id || crypto.randomUUID(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     const nextLeads = exists
-      ? state.leads.map((item) => (item.id === lead.id ? { ...normalizedLead, updatedAt: new Date().toISOString() } : item))
-      : [{ ...normalizedLead, id: normalizedLead.id || crypto.randomUUID(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, ...state.leads];
+      ? state.leads.map((item) => (item.id === lead.id ? savedLead : item))
+      : [savedLead, ...state.leads];
     updateState({ ...state, leads: nextLeads }, exists ? "Lead actualizado." : "Lead creado.");
+    saveLeadToFirestore(savedLead).catch((error) => {
+      setToast(`Lead guardado localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa reglas/configuracion"}.`);
+    });
   }
 
   function deleteLead(leadId: string) {
@@ -143,6 +165,9 @@ export function useCrmStore() {
       },
       "Lead eliminado."
     );
+    deleteLeadFromFirestore(leadId).catch((error) => {
+      setToast(`Lead eliminado localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa reglas/configuracion"}.`);
+    });
   }
 
   function upsertLeadGroup(group: LeadGroup) {
@@ -181,6 +206,9 @@ export function useCrmStore() {
       { ...state, leads: [...leads, ...state.leads] },
       `${leads.length} leads importados. Los duplicados no confirmados quedaron fuera.`
     );
+    saveLeadsToFirestore(leads).catch((error) => {
+      setToast(`Leads importados localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa reglas/configuracion"}.`);
+    });
   }
 
   function updateLeadStatus(leadId: string, estado: Lead["estado"]) {
