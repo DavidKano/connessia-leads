@@ -206,8 +206,36 @@ export function useCrmStore() {
     );
   }
 
-  function addTemplate(template: MessageTemplate) {
-    updateState({ ...state, templates: [template, ...state.templates] }, "Plantilla guardada.");
+  function upsertTemplate(template: MessageTemplate) {
+    const exists = state.templates.some((item) => item.id === template.id);
+    updateState(
+      {
+        ...state,
+        templates: exists
+          ? state.templates.map((item) => (item.id === template.id ? template : item))
+          : [{ ...template, id: template.id || crypto.randomUUID(), createdAt: template.createdAt || new Date().toISOString() }, ...state.templates]
+      },
+      exists ? "Plantilla actualizada." : "Plantilla creada."
+    );
+  }
+
+  function deleteTemplate(templateId: string) {
+    updateState(
+      {
+        ...state,
+        templates: state.templates.filter((template) => template.id !== templateId),
+        campaigns: state.campaigns.map((campaign) => ({
+          ...campaign,
+          plantillaInicialId: campaign.plantillaInicialId === templateId ? "" : campaign.plantillaInicialId,
+          plantillaSeguimientoId: campaign.plantillaSeguimientoId === templateId ? undefined : campaign.plantillaSeguimientoId,
+          plantillaInfoId: campaign.plantillaInfoId === templateId ? undefined : campaign.plantillaInfoId,
+          updatedAt: [campaign.plantillaInicialId, campaign.plantillaSeguimientoId, campaign.plantillaInfoId].includes(templateId)
+            ? new Date().toISOString()
+            : campaign.updatedAt
+        }))
+      },
+      "Plantilla eliminada."
+    );
   }
 
   function updateCampaign(campaign: Campaign) {
@@ -308,7 +336,8 @@ export function useCrmStore() {
     updateLeadStatus,
     updateSettings,
     addDoNotContact,
-    addTemplate,
+    upsertTemplate,
+    deleteTemplate,
     updateCampaign,
     deleteCampaign,
     upsertAsset,

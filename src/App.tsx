@@ -34,7 +34,7 @@ import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
 import type { Campaign, CommercialAsset, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task } from "./types/domain";
-import { formatDate, formatDateTime, percent } from "./utils/formatters";
+import { formatDate, formatDateTime, percent, renderTemplate } from "./utils/formatters";
 
 const inputClass =
   "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-connessia-500 focus:ring-2 focus:ring-connessia-100";
@@ -149,6 +149,21 @@ function emptyAsset(): CommercialAsset {
   };
 }
 
+function emptyTemplate(): MessageTemplate {
+  return {
+    id: crypto.randomUUID(),
+    nombre: "Nueva plantilla",
+    tipo: "plantilla_inicial",
+    proveedor: "whatsapp_web",
+    idioma: "es",
+    categoria: "marketing",
+    body: "Hola {{persona_contacto}}, ...",
+    variables: ["persona_contacto"],
+    estado: "borrador",
+    createdAt: new Date().toISOString()
+  };
+}
+
 export default function App() {
   const store = useCrmStore();
   const { state, metrics } = store;
@@ -190,7 +205,7 @@ export default function App() {
                 onCampaignDelete={store.deleteCampaign}
               />
             )}
-            {page === "plantillas" && <TemplatesScreen templates={state.templates} onAdd={store.addTemplate} />}
+            {page === "plantillas" && <TemplatesScreen templates={state.templates} onSave={store.upsertTemplate} onDelete={store.deleteTemplate} />}
             {page === "assets" && <AssetsScreen state={state} onSave={store.upsertAsset} onDelete={store.deleteAsset} />}
             {page === "tareas" && <TasksScreen state={state} onSave={store.upsertTask} onDelete={store.deleteTask} />}
             {page === "demos" && <DemosScreen state={state} onSave={store.upsertDemo} onDelete={store.deleteDemo} />}
@@ -816,6 +831,15 @@ function conversationStatusLabel(status: string) {
   return labels[status] ?? status;
 }
 
+function campaignFollowupHours(campaign: Campaign) {
+  return campaign.diasParaSeguimiento < 4 ? campaign.diasParaSeguimiento * 24 : campaign.diasParaSeguimiento;
+}
+
+function formatFollowupDelay(campaign: Campaign) {
+  const hours = campaignFollowupHours(campaign);
+  return hours >= 24 ? `${hours / 24} dia(s)` : `${hours} horas`;
+}
+
 function CampaignsScreen({
   state,
   updateState,
@@ -911,6 +935,61 @@ function CampaignsScreen({
   async function activate() {
     const result = enqueueCampaign(state, campaign.id);
     updateState(result.state as typeof state, result.notice);
+  }
+
+  function enqueueNoReplyFollowups() {
+    if (!campaign) return;
+    const template = campaign.plantillaSeguimientoId
+      ? state.templates.find((item) => item.id === campaign.plantillaSeguimientoId)
+      : undefined;
+    if (!template || template.estado !== "aprobada") {
+      updateState(state, "Selecciona una plantilla de seguimiento aprobada en la campana.");
+      return;
+    }
+
+    const now = new Date();
+    const delayMs = campaignFollowupHours(campaign) * 60 * 60 * 1000;
+    const targets = conversations.filter((conversation) => {
+      if (conversation.lastInbound || conversation.pending || !conversation.latestSent) return false;
+      const sentAt = new Date(conversation.latestSent.sentAt ?? conversation.latestSent.scheduledAt).getTime();
+      const followupsAlreadyPrepared = conversation.queue.filter(
+        (item) => item.templateId === template.id && ["pending", "processing", "sent"].includes(item.status)
+      ).length;
+      return now.getTime() - sentAt >= delayMs && followupsAlreadyPrepared < campaign.maxSeguimientos;
+    });
+
+    if (targets.length === 0) {
+      updateState(state, `No hay leads sin respuesta que hayan superado ${formatFollowupDelay(campaign)}.`);
+      return;
+    }
+
+    const scheduledAt = now.toISOString();
+    updateState(
+      {
+        ...state,
+        queue: [
+          ...state.queue,
+          ...targets.map<QueueItem>((conversation) => ({
+            id: `queue-${crypto.randomUUID()}`,
+            leadId: conversation.lead.id,
+            campaignId: campaign.id,
+            phone: conversation.latestSent?.phone ?? conversation.lead.telefono,
+            messageType: "template",
+            templateId: template.id,
+            body: renderTemplate(template, conversation.lead, state.settings),
+            status: "pending",
+            scheduledAt,
+            retries: 0
+          }))
+        ],
+        leads: state.leads.map((lead) =>
+          targets.some((conversation) => conversation.lead.id === lead.id)
+            ? { ...lead, proximaAccion: "Enviar seguimiento sin respuesta", updatedAt: scheduledAt }
+            : lead
+        )
+      },
+      `${targets.length} seguimiento(s) preparados para leads sin respuesta.`
+    );
   }
 
   function toggleCampaignGroup(groupId: string, checked: boolean) {
@@ -1078,7 +1157,7 @@ function CampaignsScreen({
                 <Info label="Sectores" value={campaign.segmento.sectores.join(", ")} />
                 <Info label="Grupos" value={campaign.segmento.grupoIds.length ? campaign.segmento.grupoIds.map((id) => state.leadGroups.find((group) => group.id === id)?.nombre ?? id).join(", ") : "Todos"} />
                 <Info label="Asset tras SI" value={campaign.assetInfoId ? state.assets.find((asset) => asset.id === campaign.assetInfoId)?.name ?? "Asset no encontrado" : "Ninguno"} />
-                <Info label="Seguimientos" value={`${campaign.maxSeguimientos} en ${campaign.diasParaSeguimiento} días`} />
+                <Info label="Seguimiento sin respuesta" value={`${campaign.maxSeguimientos} tras ${formatFollowupDelay(campaign)}`} />
                 <Info label="Plantilla inicial" value={state.templates.find((tpl) => tpl.id === campaign.plantillaInicialId)?.nombre ?? ""} />
               </div>
               <div className="rounded-lg border border-slate-200 p-4">
@@ -1117,6 +1196,7 @@ function CampaignsScreen({
               <div className="flex flex-wrap gap-2">
                 <Button icon={<PlayCircle size={18} />} disabled={!allChecked} onClick={activate}>Validar y encolar campaña</Button>
                 <Button variant="secondary" icon={<ExternalLink size={18} />} onClick={openNextQueueItem}>Abrir siguiente en WhatsApp Web</Button>
+                <Button variant="secondary" icon={<RefreshCw size={18} />} onClick={enqueueNoReplyFollowups}>Preparar sin respuesta</Button>
                 <Button variant="danger" icon={<PauseCircle size={18} />} onClick={() => onCampaignUpdate({ ...campaign, estado: "pausada", updatedAt: new Date().toISOString() })}>Pausar</Button>
               </div>
             </div>
@@ -1246,13 +1326,22 @@ function CampaignsScreen({
   );
 }
 
-function TemplatesScreen({ templates, onAdd }: { templates: MessageTemplate[]; onAdd: (template: MessageTemplate) => void }) {
+function TemplatesScreen({
+  templates,
+  onSave,
+  onDelete
+}: {
+  templates: MessageTemplate[];
+  onSave: (template: MessageTemplate) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState<MessageTemplate | null>(null);
   return (
     <div className="space-y-5">
       <ScreenHeader
         title="Plantillas"
         subtitle="Mensajes base para WhatsApp Web. Los iniciales no se preparan si no están aprobados."
-        action={<Button icon={<Plus size={18} />} onClick={() => onAdd({ id: crypto.randomUUID(), nombre: "Nueva plantilla", tipo: "plantilla_inicial", proveedor: "whatsapp_web", idioma: "es", categoria: "marketing", body: "Hola {{persona_contacto}}, ...", variables: ["persona_contacto"], estado: "borrador", createdAt: new Date().toISOString() })}>Nueva</Button>}
+        action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyTemplate())}>Nueva plantilla</Button>}
       />
       <div className="grid gap-4 lg:grid-cols-2">
         {templates.map((template) => (
@@ -1268,10 +1357,73 @@ function TemplatesScreen({ templates, onAdd }: { templates: MessageTemplate[]; o
             <div className="mt-4 flex flex-wrap gap-2">
               {template.variables.map((variable) => <span key={variable} className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{`{{${variable}}}`}</span>)}
             </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="secondary" icon={<Edit3 size={16} />} onClick={() => setEditing(template)}>Editar</Button>
+              <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar esta plantilla? Se quitara de las campanas que la usen.") && onDelete(template.id)}>Eliminar</Button>
+            </div>
           </Card>
         ))}
+        {templates.length === 0 && <Card className="p-5 text-sm text-slate-500">Todavia no hay plantillas.</Card>}
       </div>
+      {editing && (
+        <TemplateFormModal
+          template={editing}
+          onClose={() => setEditing(null)}
+          onSave={(template) => {
+            onSave(template);
+            setEditing(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function TemplateFormModal({
+  template,
+  onClose,
+  onSave
+}: {
+  template: MessageTemplate;
+  onClose: () => void;
+  onSave: (template: MessageTemplate) => void;
+}) {
+  const [draft, setDraft] = useState(template);
+
+  return (
+    <Modal title="Plantilla WhatsApp" onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Nombre" value={draft.nombre} onChange={(value) => setDraft({ ...draft, nombre: value })} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Tipo</span>
+          <select className={inputClass} value={draft.tipo} onChange={(event) => setDraft({ ...draft, tipo: event.target.value as MessageTemplate["tipo"] })}>
+            <option value="plantilla_inicial">Inicial</option>
+            <option value="plantilla_seguimiento">Seguimiento sin respuesta</option>
+            <option value="plantilla_info">Info tras SI</option>
+            <option value="plantilla_recordatorio_demo">Recordatorio demo</option>
+            <option value="plantilla_baja">Baja / cierre</option>
+            <option value="plantilla_error">Error</option>
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Estado</span>
+          <select className={inputClass} value={draft.estado} onChange={(event) => setDraft({ ...draft, estado: event.target.value as MessageTemplate["estado"] })}>
+            {["borrador", "enviada_a_revision", "aprobada", "rechazada", "pausada"].map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <Field label="Idioma" value={draft.idioma} onChange={(value) => setDraft({ ...draft, idioma: value })} />
+        <Field label="Categoria" value={draft.categoria} onChange={(value) => setDraft({ ...draft, categoria: value })} />
+        <Field label="Variables separadas por coma" value={draft.variables.join(", ")} onChange={(value) => setDraft({ ...draft, variables: value.split(",").map((item) => item.trim()).filter(Boolean) })} />
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Texto</span>
+          <textarea className={inputClass} rows={8} value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} />
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => onSave({ ...draft, nombre: draft.nombre.trim() || "Plantilla sin nombre", body: draft.body.trim() })}>Guardar plantilla</Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -1343,7 +1495,13 @@ function CampaignFormModal({
   onSave: (campaign: Campaign) => void;
 }) {
   const [draft, setDraft] = useState(campaign);
-  const templateOptions = templates.filter((template) => template.estado === "aprobada" || template.id === draft.plantillaInicialId || template.id === draft.plantillaInfoId);
+  const templateOptions = templates.filter(
+    (template) =>
+      template.estado === "aprobada" ||
+      template.id === draft.plantillaInicialId ||
+      template.id === draft.plantillaInfoId ||
+      template.id === draft.plantillaSeguimientoId
+  );
 
   function toggleGroup(groupId: string, checked: boolean) {
     setDraft((current) => ({
@@ -1396,6 +1554,23 @@ function CampaignFormModal({
             {templateOptions.map((template) => <option key={template.id} value={template.id}>{template.nombre}</option>)}
           </select>
         </label>
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Plantilla si no responde</span>
+          <select className={inputClass} value={draft.plantillaSeguimientoId ?? ""} onChange={(event) => setDraft({ ...draft, plantillaSeguimientoId: event.target.value || undefined })}>
+            <option value="">Sin seguimiento</option>
+            {templateOptions
+              .filter((template) => template.tipo === "plantilla_seguimiento" || template.id === draft.plantillaSeguimientoId)
+              .map((template) => <option key={template.id} value={template.id}>{template.nombre}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Enviar seguimiento tras</span>
+          <select className={inputClass} value={String(campaignFollowupHours(draft))} onChange={(event) => setDraft({ ...draft, diasParaSeguimiento: Number(event.target.value) })}>
+            <option value="12">12 horas sin respuesta</option>
+            <option value="24">24 horas sin respuesta</option>
+            <option value="72">3 dias sin respuesta</option>
+          </select>
+        </label>
         <label className="md:col-span-2">
           <span className="mb-1 block text-sm font-semibold text-slate-700">Asset a enviar tras SI</span>
           <select className={inputClass} value={draft.assetInfoId ?? ""} onChange={(event) => setDraft({ ...draft, assetInfoId: event.target.value || undefined })}>
@@ -1404,7 +1579,6 @@ function CampaignFormModal({
           </select>
         </label>
         <Field label="Seguimientos maximos" type="number" value={String(draft.maxSeguimientos)} onChange={(value) => setDraft({ ...draft, maxSeguimientos: Number(value) || 0 })} />
-        <Field label="Dias para seguimiento" type="number" value={String(draft.diasParaSeguimiento)} onChange={(value) => setDraft({ ...draft, diasParaSeguimiento: Number(value) || 0 })} />
         <label className="md:col-span-2">
           <span className="mb-2 block text-sm font-semibold text-slate-700">Grupos de leads</span>
           <div className="grid gap-2 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
