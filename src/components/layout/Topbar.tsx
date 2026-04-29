@@ -1,14 +1,14 @@
-import { Menu, ShieldCheck } from "lucide-react";
-import type { AppUser, UserRole } from "../../types/domain";
+import { Menu, ShieldCheck, UserCircle } from "lucide-react";
+import type { AppUser } from "../../types/domain";
 import { Button } from "../ui/Button";
 
 export function Topbar({
   user,
-  onRoleChange,
+  onChangeUser,
   onMenu
 }: {
   user: AppUser;
-  onRoleChange: (role: UserRole) => void;
+  onChangeUser: () => void;
   onMenu: () => void;
 }) {
   return (
@@ -28,15 +28,16 @@ export function Topbar({
             <ShieldCheck size={16} />
             RGPD listo
           </div>
-          <select
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            value={user.role}
-            onChange={(event) => onRoleChange(event.target.value as UserRole)}
+          <button
+            className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            onClick={onChangeUser}
           >
-            <option value="admin">Admin demo</option>
-            <option value="comercial">Comercial demo</option>
-            <option value="visor">Visor demo</option>
-          </select>
+            <UserCircle size={18} />
+            <span>
+              <span className="block leading-4">{user.nombre}</span>
+              <span className="block text-xs font-medium text-slate-500">{user.role}</span>
+            </span>
+          </button>
         </div>
       </div>
     </header>

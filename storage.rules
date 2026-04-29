@@ -2,19 +2,10 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return signedIn()
-        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "admin";
-    }
-
+    // Modo simple para esta app sin login: permite subir y leer assets comerciales.
+    // Para produccion multiusuario conviene volver a reglas con Auth y roles.
     match /assets/{allPaths=**} {
-      allow read: if signedIn();
-      allow write: if isAdmin();
+      allow read, write: if true;
     }
   }
 }

@@ -32,8 +32,9 @@ import { StatCard } from "./components/ui/StatCard";
 import { canSendToLead, enqueueCampaign, handleIncomingReply, processQueue } from "./services/campaignEngine";
 import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
+import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
-import type { Campaign, CommercialAsset, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task } from "./types/domain";
+import type { AppUser, Campaign, CommercialAsset, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
 import { formatDate, formatDateTime, percent, renderTemplate } from "./utils/formatters";
 
 const inputClass =
@@ -47,7 +48,7 @@ const complianceItems = [
   "Confirmo que no se usará WhatsApp para spam."
 ];
 
-function emptyLead(): Lead {
+function emptyLead(assignedTo = "admin-demo"): Lead {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
@@ -64,7 +65,7 @@ function emptyLead(): Lead {
     estado: "consentimiento_obtenido",
     etiquetas: [],
     grupoIds: [],
-    comercialAsignado: "admin-demo",
+    comercialAsignado: assignedTo,
     tieneConsentimientoWhatsapp: true,
     fechaConsentimiento: now,
     origenConsentimiento: "otro",
@@ -170,6 +171,7 @@ export default function App() {
   const [page, setPage] = useState<PageId>("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [identityOpen, setIdentityOpen] = useState(state.currentUser.uid.endsWith("-demo"));
 
   const visibleLeads = state.leads;
 
@@ -180,7 +182,7 @@ export default function App() {
       <div className="flex min-h-screen">
         <Sidebar page={page} setPage={setPage} />
         <div className="min-w-0 flex-1">
-          <Topbar user={state.currentUser} onRoleChange={store.setRole} onMenu={() => setMobileMenu(true)} />
+          <Topbar user={state.currentUser} onChangeUser={() => setIdentityOpen(true)} onMenu={() => setMobileMenu(true)} />
           <main className="mx-auto max-w-7xl px-4 py-6 lg:px-6">
             <Toast text={store.toast} />
             {page === "dashboard" && <Dashboard metrics={metrics} state={state} leads={visibleLeads} setPage={setPage} />}
@@ -188,6 +190,7 @@ export default function App() {
               <LeadsScreen
                 leads={visibleLeads}
                 users={state.users}
+                currentUser={state.currentUser}
                 groups={state.leadGroups}
                 onSelect={setSelectedLeadId}
                 onSave={store.upsertLead}
@@ -258,6 +261,16 @@ export default function App() {
           onSave={store.upsertLead}
         />
       )}
+      {identityOpen && (
+        <IdentityModal
+          user={state.currentUser}
+          onClose={() => setIdentityOpen(false)}
+          onSave={(user) => {
+            store.identifyUser(user);
+            setIdentityOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -268,6 +281,46 @@ function Toast({ text }: { text: string }) {
       <ShieldCheck size={18} />
       {text}
     </div>
+  );
+}
+
+function IdentityModal({
+  user,
+  onClose,
+  onSave
+}: {
+  user: AppUser;
+  onClose: () => void;
+  onSave: (user: Pick<AppUser, "nombre" | "email" | "role">) => void;
+}) {
+  const [draft, setDraft] = useState({
+    nombre: user.uid.endsWith("-demo") ? "" : user.nombre,
+    email: user.uid.endsWith("-demo") ? "" : user.email,
+    role: user.role
+  });
+
+  return (
+    <Modal title="Identificacion de usuario" onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Nombre" value={draft.nombre} onChange={(value) => setDraft({ ...draft, nombre: value })} />
+        <Field label="Email" value={draft.email} onChange={(value) => setDraft({ ...draft, email: value })} />
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Rol</span>
+          <select className={inputClass} value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value as UserRole })}>
+            <option value="admin">Admin</option>
+            <option value="comercial">Comercial</option>
+            <option value="visor">Visor</option>
+          </select>
+        </label>
+        <div className="rounded-lg border border-connessia-200 bg-connessia-50 p-3 text-sm text-connessia-900">
+          Esta identificacion se guarda en este navegador y se usa para asignar leads, tareas y campanas.
+        </div>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+        <Button onClick={() => onSave({ ...draft, nombre: draft.nombre.trim() || "Usuario", email: draft.email.trim() || "usuario@local.app" })}>Entrar</Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -366,6 +419,7 @@ function LeadMiniTable({ leads }: { leads: Lead[] }) {
 function LeadsScreen({
   leads,
   users,
+  currentUser,
   groups,
   onSelect,
   onSave,
@@ -375,6 +429,7 @@ function LeadsScreen({
 }: {
   leads: Lead[];
   users: ReturnType<typeof useCrmStore>["state"]["users"];
+  currentUser: AppUser;
   groups: LeadGroup[];
   onSelect: (id: string) => void;
   onSave: (lead: Lead) => void;
@@ -407,7 +462,7 @@ function LeadsScreen({
       <ScreenHeader
         title="Gestión de leads"
         subtitle="CRM comercial con grupos, consentimiento, estados, notas e historial."
-        action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead())}>Nuevo lead</Button>}
+        action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(currentUser.uid))}>Nuevo lead</Button>}
       />
       <Card className="p-4">
         <div className="grid gap-3 md:grid-cols-5">
@@ -1611,10 +1666,51 @@ function AssetFormModal({
   onSave: (asset: CommercialAsset) => void;
 }) {
   const [draft, setDraft] = useState(asset);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
+  async function handleAssetFile(file: File) {
+    setUploading(true);
+    setUploadError("");
+    try {
+      const uploaded = await uploadCommercialAsset(file);
+      setDraft((current) => ({
+        ...current,
+        name: current.name || uploaded.name,
+        type: uploaded.type,
+        url: uploaded.url,
+        storagePath: uploaded.storagePath
+      }));
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "No se pudo subir el archivo.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <Modal title="Asset comercial" onClose={onClose}>
       <div className="grid gap-4 md:grid-cols-2">
+        <label
+          className="flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center transition hover:border-connessia-300 hover:bg-connessia-50 md:col-span-2"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            const file = event.dataTransfer.files[0];
+            if (file) void handleAssetFile(file);
+          }}
+        >
+          <Upload className="mb-3 text-connessia-700" size={30} />
+          <span className="font-bold text-slate-950">{uploading ? "Subiendo archivo..." : "Arrastra aqui el asset o haz clic para subirlo"}</span>
+          <span className="mt-1 text-sm text-slate-500">Imagen, PDF o video. Se guarda en Firebase Storage.</span>
+          <input className="hidden" type="file" accept="image/*,application/pdf,video/*" onChange={(event) => event.target.files?.[0] && void handleAssetFile(event.target.files[0])} />
+        </label>
+        {uploadError && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800 md:col-span-2">{uploadError}</div>}
+        {draft.url && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950 md:col-span-2">
+            Archivo listo: <strong>{draft.storagePath || draft.url}</strong>
+          </div>
+        )}
         <Field label="Nombre" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
         <label>
           <span className="mb-1 block text-sm font-semibold text-slate-700">Tipo</span>
@@ -1624,16 +1720,12 @@ function AssetFormModal({
             <option value="video">Video</option>
           </select>
         </label>
-        <label className="md:col-span-2">
-          <span className="mb-1 block text-sm font-semibold text-slate-700">URL publica</span>
-          <input className={inputClass} placeholder="https://..." value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} />
-          <p className="mt-1 text-xs text-slate-500">Pega aqui el enlace publico de Firebase Storage, Drive publicado, una imagen o un PDF.</p>
-        </label>
+        <Field label="URL publica generada" value={draft.url} onChange={(value) => setDraft({ ...draft, url: value })} />
         <Field label="Ruta interna o referencia" value={draft.storagePath} onChange={(value) => setDraft({ ...draft, storagePath: value })} />
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="secondary" onClick={onClose}>Cancelar</Button>
-        <Button onClick={() => onSave({ ...draft, name: draft.name.trim() || "Asset sin nombre", url: draft.url.trim(), storagePath: draft.storagePath.trim() })}>Guardar asset</Button>
+        <Button disabled={uploading || !draft.url.trim()} onClick={() => onSave({ ...draft, name: draft.name.trim() || "Asset sin nombre", url: draft.url.trim(), storagePath: draft.storagePath.trim() })}>Guardar asset</Button>
       </div>
     </Modal>
   );

@@ -138,6 +138,29 @@ export function useCrmStore() {
     updateState({ ...state, currentUser: user }, `Sesión demo cambiada a rol ${role}.`);
   }
 
+  function identifyUser(userInput: Pick<AppUser, "nombre" | "email" | "role">) {
+    const normalizedEmail = userInput.email.trim().toLowerCase();
+    const uid = normalizedEmail ? `user-${normalizedEmail.replace(/[^\w.-]+/g, "-")}` : `user-${crypto.randomUUID()}`;
+    const user: AppUser = {
+      uid,
+      nombre: userInput.nombre.trim() || normalizedEmail || "Usuario",
+      email: normalizedEmail || "usuario@local.app",
+      role: userInput.role,
+      activo: true,
+      createdAt: state.users.find((item) => item.uid === uid)?.createdAt ?? new Date().toISOString()
+    };
+    updateState(
+      {
+        ...state,
+        currentUser: user,
+        users: state.users.some((item) => item.uid === uid)
+          ? state.users.map((item) => (item.uid === uid ? user : item))
+          : [user, ...state.users]
+      },
+      `Sesion iniciada como ${user.nombre}.`
+    );
+  }
+
   function upsertLead(lead: Lead) {
     const normalizedLead = { ...lead, telefono: normalizePhone(lead.telefono) };
     const exists = state.leads.some((item) => item.id === lead.id);
@@ -358,6 +381,7 @@ export function useCrmStore() {
     setToast,
     updateState,
     setRole,
+    identifyUser,
     upsertLead,
     deleteLead,
     importLeads,

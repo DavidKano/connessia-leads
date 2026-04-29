@@ -53,3 +53,10 @@ export function getFirebaseDb() {
   const firebaseApp = getApps()[0] ?? initializeApp(config);
   return getFirestore(firebaseApp);
 }
+
+export function getFirebaseStorage() {
+  const config = getFirebaseConfig();
+  if (!config.apiKey || !config.projectId || !config.storageBucket) return null;
+  const firebaseApp = getApps()[0] ?? initializeApp(config);
+  return getStorage(firebaseApp);
+}
