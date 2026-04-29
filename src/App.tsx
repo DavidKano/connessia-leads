@@ -24,6 +24,7 @@ import {
 import { useState, type ReactNode } from "react";
 import { Sidebar, navItems, type PageId } from "./components/layout/Sidebar";
 import { Topbar } from "./components/layout/Topbar";
+import { LeadFinderScreen } from "./components/screens/LeadFinderScreen";
 import { Badge } from "./components/ui/Badge";
 import { Button } from "./components/ui/Button";
 import { Card } from "./components/ui/Card";
@@ -36,6 +37,9 @@ import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
 import type { AppUser, Campaign, CommercialAsset, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
 import { formatDate, formatDateTime, percent, renderTemplate } from "./utils/formatters";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from "firebase/auth";
+import { auth } from "./services/firebase";
+import { useEffect } from "react";
 
 const inputClass =
   "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-connessia-500 focus:ring-2 focus:ring-connessia-100";
@@ -168,10 +172,40 @@ function emptyTemplate(): MessageTemplate {
 export default function App() {
   const store = useCrmStore();
   const { state, metrics } = store;
+  const [fbUser, setFbUser] = useState<FirebaseUser | null>(null);
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<PageId>("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
-  const [identityOpen, setIdentityOpen] = useState(state.currentUser.uid.endsWith("-demo"));
+  const [identityOpen, setIdentityOpen] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setFbUser(user);
+      setLoading(false);
+      if (user) {
+        // Sync CRM store user
+        store.identifyUser({
+          nombre: user.displayName || user.email?.split("@")[0] || "Usuario",
+          email: user.email || "",
+          role: "admin" // Default to admin for simplicity or fetch from DB
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-connessia-600" />
+      </div>
+    );
+  }
+
+  if (!fbUser) {
+    return <AuthScreen />;
+  }
 
   const visibleLeads = state.leads;
 
@@ -214,11 +248,11 @@ export default function App() {
             {page === "demos" && <DemosScreen state={state} onSave={store.upsertDemo} onDelete={store.deleteDemo} />}
             {page === "metricas" && <MetricsScreen metrics={metrics} state={state} />}
             {page === "whatsapp" && <WhatsappScreen settings={state.settings} onSave={store.updateSettings} />}
-            {page === "firebase" && <FirebaseScreen settings={state.settings} onSave={store.updateSettings} />}
             {page === "tutorial" && <TutorialScreen />}
             {page === "exclusion" && <ExclusionScreen state={state} onAdd={store.addDoNotContact} />}
             {page === "auditoria" && <AuditScreen state={state} />}
             {page === "simulador" && <SimulatorScreen state={state} updateState={store.updateState} />}
+            {page === "finder" && <LeadFinderScreen />}
           </main>
         </div>
       </div>
@@ -272,6 +306,99 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+function AuthScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err: any) {
+      setError("Error al iniciar sesión: " + (err.code === 'auth/invalid-credential' ? 'Credenciales incorrectas' : err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
+      <Card className="w-full max-w-md p-8">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-connessia-600 text-white">
+            <ShieldCheck size={28} />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-950">Connessia Leads</h1>
+          <p className="text-slate-500">Inicia sesión para acceder al panel</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          <label>
+            <span className="mb-1 block text-sm font-semibold text-slate-700">Email</span>
+            <input 
+              type="email" 
+              className={inputClass} 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              placeholder="admin@connessia.com"
+              required 
+            />
+          </label>
+          <label>
+            <span className="mb-1 block text-sm font-semibold text-slate-700">Contraseña</span>
+            <input 
+              type="password" 
+              className={inputClass} 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              placeholder="••••••••"
+              required 
+            />
+          </label>
+
+          {error && (
+            <div className="rounded-md bg-coral-50 p-3 text-sm text-coral-600">
+              {error}
+            </div>
+          )}
+
+          <Button 
+            className="w-full" 
+            type="submit" 
+            disabled={loading}
+            icon={loading ? <Loader2 size={18} className="animate-spin" /> : undefined}
+          >
+            {loading ? "Entrando..." : "Entrar"}
+          </Button>
+        </form>
+      </Card>
+    </div>
+  );
+}
+
+function Loader2({ size, className }: { size?: number; className?: string }) {
+  return (
+    <svg 
+      xmlns="http://www.w3.org/2000/svg" 
+      width={size} 
+      height={size} 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round" 
+      className={className}
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+    </svg>
   );
 }
 
@@ -552,9 +679,9 @@ function LeadsScreen({
                   <td>{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? lead.comercialAsignado}</td>
                   <td>{formatDateTime(lead.ultimoContacto)}</td>
                   <td>
-                    <div className="flex gap-2">
-                      <Button variant="secondary" icon={<Edit3 size={16} />} onClick={() => setEditing(lead)}>Editar</Button>
-                      <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar este lead y sus tareas/demos/mensajes?") && onDelete(lead.id)}>Eliminar</Button>
+                    <div className="flex gap-1">
+                      <Button variant="secondary" className="px-2" icon={<Edit3 size={16} />} onClick={() => setEditing(lead)} title="Editar lead" />
+                      <Button variant="danger" className="px-2" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar este lead y sus tareas/demos/mensajes?") && onDelete(lead.id)} title="Eliminar lead" />
                     </div>
                   </td>
                 </tr>
@@ -2075,78 +2202,23 @@ function WhatsappScreen({ settings, onSave }: { settings: Settings; onSave: (set
   );
 }
 
-function FirebaseScreen({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
-  const [draft, setDraft] = useState(settings.firebaseConfig);
-  const requiredFields: Array<keyof typeof draft> = ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"];
-  const complete = requiredFields.every((key) => Boolean(String(draft[key] ?? "").trim()));
-  const update = (key: keyof typeof draft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
-
-  return (
-    <div className="space-y-5">
-      <ScreenHeader title="Firebase" subtitle="Formulario para guardar los datos públicos del proyecto sin editar archivos .env." />
-      <Card className="p-5">
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-          Copia estos valores desde Firebase Console, en Configuración del proyecto y tu app web. Se guardan en este navegador.
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="API key" value={draft.apiKey} onChange={(value) => update("apiKey", value)} />
-          <Field label="Auth domain" value={draft.authDomain} onChange={(value) => update("authDomain", value)} />
-          <Field label="Project ID" value={draft.projectId} onChange={(value) => update("projectId", value)} />
-          <Field label="Storage bucket" value={draft.storageBucket} onChange={(value) => update("storageBucket", value)} />
-          <Field label="Messaging sender ID" value={draft.messagingSenderId} onChange={(value) => update("messagingSenderId", value)} />
-          <Field label="App ID" value={draft.appId} onChange={(value) => update("appId", value)} />
-          <Field label="Measurement ID" value={draft.measurementId ?? ""} onChange={(value) => update("measurementId", value)} />
-          <Info label="Estado" value={complete ? "configuración completa" : "faltan campos"} />
-        </div>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Button
-            icon={<Database size={18} />}
-            onClick={() => onSave({ ...settings, firebaseConfig: { ...draft, updatedAt: new Date().toISOString() } })}
-          >
-            Guardar Firebase
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() =>
-              setDraft({
-                apiKey: "",
-                authDomain: "",
-                projectId: "",
-                storageBucket: "",
-                messagingSenderId: "",
-                appId: "",
-                measurementId: ""
-              })
-            }
-          >
-            Limpiar formulario
-          </Button>
-        </div>
-      </Card>
-    </div>
-  );
-}
 
 function TutorialScreen() {
   const steps = [
     {
-      title: "1. Configura Firebase",
-      text: "Abre la pestaña Firebase, pega los datos de tu app web y guarda. Esto evita tener que editar .env para probar la app."
-    },
-    {
-      title: "2. Importa o crea leads",
+      title: "1. Importa o crea leads",
       text: "En Importar puedes subir un CSV. Asegúrate de que el teléfono tenga prefijo internacional, por ejemplo +34600111222."
     },
     {
-      title: "3. Revisa consentimiento",
+      title: "2. Revisa consentimiento",
       text: "Cada lead debe tener consentimiento WhatsApp. Sin ese check, la campaña no lo encola."
     },
     {
-      title: "4. Encola una campaña",
+      title: "3. Encola una campaña",
       text: "En Campañas marca el checklist legal y pulsa Validar y encolar campaña. La cola crea los mensajes preparados."
     },
     {
-      title: "5. Envía con WhatsApp Web",
+      title: "4. Envía con WhatsApp Web",
       text: "Pulsa Abrir chat o Abrir siguiente. WhatsApp Web se abre con el mensaje escrito; revisa y pulsa enviar manualmente."
     },
     {

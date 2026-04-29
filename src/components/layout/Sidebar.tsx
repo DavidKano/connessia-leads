@@ -14,6 +14,7 @@ import {
   MessageSquareText,
   Settings,
   ShieldCheck,
+  Search,
   Users
 } from "lucide-react";
 import { clsx } from "clsx";
@@ -29,11 +30,11 @@ export const navItems = [
   { id: "demos", label: "Demos", icon: CalendarClock },
   { id: "metricas", label: "Métricas", icon: BarChart3 },
   { id: "whatsapp", label: "Canal WhatsApp", icon: Settings },
-  { id: "firebase", label: "Firebase", icon: Database },
   { id: "tutorial", label: "Tutorial", icon: ListChecks },
   { id: "exclusion", label: "Exclusión", icon: ShieldCheck },
   { id: "auditoria", label: "Auditoría", icon: History },
-  { id: "simulador", label: "Simulador", icon: Bot }
+  { id: "simulador", label: "Simulador", icon: Bot },
+  { id: "finder", label: "Obtención Leads", icon: Search }
 ] as const;
 
 export type PageId = (typeof navItems)[number]["id"];

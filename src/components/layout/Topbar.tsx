@@ -1,6 +1,7 @@
-import { Menu, ShieldCheck, UserCircle } from "lucide-react";
+import { LogOut, Menu, ShieldCheck, UserCircle } from "lucide-react";
 import type { AppUser } from "../../types/domain";
 import { Button } from "../ui/Button";
+import { auth } from "../../services/firebase";
 
 export function Topbar({
   user,
@@ -28,6 +29,7 @@ export function Topbar({
             <ShieldCheck size={16} />
             RGPD listo
           </div>
+        <div className="flex items-center gap-2">
           <button
             className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
             onClick={onChangeUser}
@@ -38,6 +40,15 @@ export function Topbar({
               <span className="block text-xs font-medium text-slate-500">{user.role}</span>
             </span>
           </button>
+          <Button 
+            variant="secondary" 
+            className="px-3" 
+            onClick={() => auth.signOut()}
+            title="Cerrar Sesión"
+          >
+            <LogOut size={18} />
+          </Button>
+        </div>
         </div>
       </div>
     </header>

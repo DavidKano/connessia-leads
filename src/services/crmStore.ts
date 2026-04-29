@@ -29,7 +29,35 @@ import type {
   Task,
   UserRole
 } from "../types/domain";
-import { deleteLeadFromFirestore, loadLeadsFromFirestore, saveLeadsToFirestore, saveLeadToFirestore } from "./firestoreLeads";
+import { 
+  deleteLeadFromFirestore, 
+  loadLeadsFromFirestore, 
+  saveLeadToFirestore,
+  loadGroupsFromFirestore,
+  saveGroupToFirestore,
+  deleteGroupFromFirestore,
+  loadTemplatesFromFirestore,
+  saveTemplateToFirestore,
+  deleteTemplateFromFirestore,
+  loadCampaignsFromFirestore,
+  saveCampaignToFirestore,
+  deleteCampaignFromFirestore,
+  loadAssetsFromFirestore,
+  saveAssetToFirestore,
+  deleteAssetFromFirestore,
+  loadTasksFromFirestore,
+  saveTaskToFirestore,
+  deleteTaskFromFirestore,
+  loadDemosFromFirestore,
+  saveDemoToFirestore,
+  deleteDemoFromFirestore,
+  loadDNCFromFirestore,
+  saveDNCToFirestore,
+  loadSettingsFromFirestore,
+  saveSettingsToFirestore,
+  loadMessagesFromFirestore,
+  saveMessageToFirestore
+} from "./firestoreStore";
 import { normalizePhone } from "../utils/formatters";
 
 export interface CrmState {
@@ -67,40 +95,7 @@ const initialState: CrmState = {
 };
 
 function loadState() {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return initialState;
-    const parsed = JSON.parse(raw) as Partial<CrmState>;
-    return {
-      ...initialState,
-      ...parsed,
-      leads: (parsed.leads ?? initialState.leads).map((lead) => ({
-        ...lead,
-        grupoIds: lead.grupoIds ?? []
-      })),
-      campaigns: (parsed.campaigns ?? initialState.campaigns).map((campaign) => ({
-        ...campaign,
-        segmento: {
-          ...campaign.segmento,
-          grupoIds: campaign.segmento.grupoIds ?? []
-        }
-      })),
-      settings: {
-        ...initialState.settings,
-        ...parsed.settings,
-        whatsappChannel: {
-          ...initialState.settings.whatsappChannel,
-          ...parsed.settings?.whatsappChannel
-        },
-        firebaseConfig: {
-          ...initialState.settings.firebaseConfig,
-          ...parsed.settings?.firebaseConfig
-        }
-      }
-    } as CrmState;
-  } catch {
-    return initialState;
-  }
+  return initialState;
 }
 
 export function useCrmStore() {
@@ -108,22 +103,52 @@ export function useCrmStore() {
   const [toast, setToast] = useState("Modo WhatsApp Web activo. La app prepara mensajes y tú confirmas el envío.");
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [state]);
+    async function loadAllData() {
+      try {
+        const [
+          remoteLeads, 
+          remoteGroups, 
+          remoteTemplates, 
+          remoteCampaigns, 
+          remoteAssets, 
+          remoteTasks, 
+          remoteDemos, 
+          remoteDNC, 
+          remoteSettings,
+          remoteMessages
+        ] = await Promise.all([
+          loadLeadsFromFirestore(),
+          loadGroupsFromFirestore(),
+          loadTemplatesFromFirestore(),
+          loadCampaignsFromFirestore(),
+          loadAssetsFromFirestore(),
+          loadTasksFromFirestore(),
+          loadDemosFromFirestore(),
+          loadDNCFromFirestore(),
+          loadSettingsFromFirestore(),
+          loadMessagesFromFirestore()
+        ]);
 
-  useEffect(() => {
-    loadLeadsFromFirestore()
-      .then((remoteLeads) => {
-        if (!remoteLeads || remoteLeads.length === 0) return;
         setState((current) => ({
           ...current,
-          leads: remoteLeads.map((lead) => ({ ...lead, grupoIds: lead.grupoIds ?? [] }))
+          leads: remoteLeads.length > 0 ? remoteLeads.map(l => ({ ...l, grupoIds: l.grupoIds ?? [] })) : current.leads,
+          leadGroups: remoteGroups.length > 0 ? remoteGroups : current.leadGroups,
+          templates: remoteTemplates.length > 0 ? remoteTemplates : current.templates,
+          campaigns: remoteCampaigns.length > 0 ? remoteCampaigns.map(c => ({ ...c, segmento: { ...c.segmento, grupoIds: c.segmento.grupoIds ?? [] } })) : current.campaigns,
+          assets: remoteAssets.length > 0 ? remoteAssets : current.assets,
+          tasks: remoteTasks.length > 0 ? remoteTasks : current.tasks,
+          demos: remoteDemos.length > 0 ? remoteDemos : current.demos,
+          doNotContact: remoteDNC.length > 0 ? remoteDNC : current.doNotContact,
+          settings: remoteSettings || current.settings,
+          messages: remoteMessages.length > 0 ? remoteMessages : current.messages
         }));
-        setToast(`${remoteLeads.length} leads cargados desde Firestore.`);
-      })
-      .catch((error) => {
-        setToast(`Firestore no pudo cargar leads: ${error instanceof Error ? error.message : "revisa reglas/configuracion"}.`);
-      });
+        
+        setToast("Datos sincronizados con Firestore.");
+      } catch (error) {
+        setToast(`Error al sincronizar con Firestore: ${error instanceof Error ? error.message : "Desconocido"}`);
+      }
+    }
+    loadAllData();
   }, []);
 
   const metrics = useMemo(() => calculateMetrics(state), [state]);
@@ -195,15 +220,20 @@ export function useCrmStore() {
 
   function upsertLeadGroup(group: LeadGroup) {
     const exists = state.leadGroups.some((item) => item.id === group.id);
+    const groupToSave = exists
+      ? group
+      : { ...group, id: group.id || crypto.randomUUID(), createdAt: group.createdAt || new Date().toISOString() };
+    
     updateState(
       {
         ...state,
         leadGroups: exists
-          ? state.leadGroups.map((item) => (item.id === group.id ? group : item))
-          : [{ ...group, id: group.id || crypto.randomUUID(), createdAt: group.createdAt || new Date().toISOString() }, ...state.leadGroups]
+          ? state.leadGroups.map((item) => (item.id === group.id ? groupToSave : item))
+          : [groupToSave, ...state.leadGroups]
       },
       exists ? "Grupo actualizado." : "Grupo creado."
     );
+    saveGroupToFirestore(groupToSave);
   }
 
   function deleteLeadGroup(groupId: string) {
@@ -222,16 +252,16 @@ export function useCrmStore() {
       },
       "Grupo eliminado."
     );
+    deleteGroupFromFirestore(groupId);
   }
 
   function importLeads(leads: Lead[]) {
     updateState(
       { ...state, leads: [...leads, ...state.leads] },
-      `${leads.length} leads importados. Los duplicados no confirmados quedaron fuera.`
+      `${leads.length} leads importados.`
     );
-    saveLeadsToFirestore(leads).catch((error) => {
-      setToast(`Leads importados localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa reglas/configuracion"}.`);
-    });
+    // Note: In a real scenario we'd batch this
+    leads.forEach(l => saveLeadToFirestore(l));
   }
 
   function updateLeadStatus(leadId: string, estado: Lead["estado"]) {
@@ -244,30 +274,38 @@ export function useCrmStore() {
   }
 
   function updateSettings(settings: Settings) {
-    updateState({ ...state, settings }, "Configuración guardada en este navegador.");
+    updateState({ ...state, settings }, "Configuración guardada.");
+    saveSettingsToFirestore(settings);
   }
 
   function addDoNotContact(entry: Omit<DoNotContact, "id" | "createdAt">) {
+    const newDnc = { ...entry, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
     updateState(
       {
         ...state,
-        doNotContact: [{ ...entry, id: crypto.randomUUID(), createdAt: new Date().toISOString() }, ...state.doNotContact]
+        doNotContact: [newDnc, ...state.doNotContact]
       },
       "Contacto añadido a lista de exclusión."
     );
+    saveDNCToFirestore(newDnc);
   }
 
   function upsertTemplate(template: MessageTemplate) {
     const exists = state.templates.some((item) => item.id === template.id);
+    const templateToSave = exists
+      ? template
+      : { ...template, id: template.id || crypto.randomUUID(), createdAt: template.createdAt || new Date().toISOString() };
+
     updateState(
       {
         ...state,
         templates: exists
-          ? state.templates.map((item) => (item.id === template.id ? template : item))
-          : [{ ...template, id: template.id || crypto.randomUUID(), createdAt: template.createdAt || new Date().toISOString() }, ...state.templates]
+          ? state.templates.map((item) => (item.id === template.id ? templateToSave : item))
+          : [templateToSave, ...state.templates]
       },
       exists ? "Plantilla actualizada." : "Plantilla creada."
     );
+    saveTemplateToFirestore(templateToSave);
   }
 
   function deleteTemplate(templateId: string) {
@@ -287,6 +325,7 @@ export function useCrmStore() {
       },
       "Plantilla eliminada."
     );
+    deleteTemplateFromFirestore(templateId);
   }
 
   function updateCampaign(campaign: Campaign) {
@@ -300,6 +339,7 @@ export function useCrmStore() {
       },
       exists ? "Campaña actualizada." : "Campaña creada."
     );
+    saveCampaignToFirestore(campaign);
   }
 
   function deleteCampaign(campaignId: string) {
@@ -312,19 +352,25 @@ export function useCrmStore() {
       },
       "Campaña eliminada."
     );
+    deleteCampaignFromFirestore(campaignId);
   }
 
   function upsertAsset(asset: CommercialAsset) {
     const exists = state.assets.some((item) => item.id === asset.id);
+    const assetToSave = exists
+      ? asset
+      : { ...asset, id: asset.id || crypto.randomUUID(), createdAt: asset.createdAt || new Date().toISOString() };
+
     updateState(
       {
         ...state,
         assets: exists
-          ? state.assets.map((item) => (item.id === asset.id ? asset : item))
-          : [{ ...asset, id: asset.id || crypto.randomUUID(), createdAt: asset.createdAt || new Date().toISOString() }, ...state.assets]
+          ? state.assets.map((item) => (item.id === asset.id ? assetToSave : item))
+          : [assetToSave, ...state.assets]
       },
       exists ? "Asset actualizado." : "Asset creado."
     );
+    saveAssetToFirestore(assetToSave);
   }
 
   function deleteAsset(assetId: string) {
@@ -338,40 +384,53 @@ export function useCrmStore() {
       },
       "Asset eliminado."
     );
+    deleteAssetFromFirestore(assetId);
   }
 
   function upsertTask(task: Task) {
     const exists = state.tasks.some((item) => item.id === task.id);
+    const taskToSave = exists
+      ? task
+      : { ...task, id: task.id || crypto.randomUUID(), createdAt: task.createdAt || new Date().toISOString() };
+
     updateState(
       {
         ...state,
         tasks: exists
-          ? state.tasks.map((item) => (item.id === task.id ? task : item))
-          : [{ ...task, id: task.id || crypto.randomUUID(), createdAt: task.createdAt || new Date().toISOString() }, ...state.tasks]
+          ? state.tasks.map((item) => (item.id === task.id ? taskToSave : item))
+          : [taskToSave, ...state.tasks]
       },
       exists ? "Tarea actualizada." : "Tarea creada."
     );
+    saveTaskToFirestore(taskToSave);
   }
 
   function deleteTask(taskId: string) {
     updateState({ ...state, tasks: state.tasks.filter((task) => task.id !== taskId) }, "Tarea eliminada.");
+    deleteTaskFromFirestore(taskId);
   }
 
   function upsertDemo(demo: Demo) {
     const exists = state.demos.some((item) => item.id === demo.id);
+    const demoToSave = exists
+      ? demo
+      : { ...demo, id: demo.id || crypto.randomUUID(), createdAt: demo.createdAt || new Date().toISOString() };
+
     updateState(
       {
         ...state,
         demos: exists
-          ? state.demos.map((item) => (item.id === demo.id ? demo : item))
-          : [{ ...demo, id: demo.id || crypto.randomUUID(), createdAt: demo.createdAt || new Date().toISOString() }, ...state.demos]
+          ? state.demos.map((item) => (item.id === demo.id ? demoToSave : item))
+          : [demoToSave, ...state.demos]
       },
       exists ? "Demo actualizada." : "Demo creada."
     );
+    saveDemoToFirestore(demoToSave);
   }
 
   function deleteDemo(demoId: string) {
     updateState({ ...state, demos: state.demos.filter((demo) => demo.id !== demoId) }, "Demo eliminada.");
+    deleteDemoFromFirestore(demoId);
   }
 
   return {
