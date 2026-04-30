@@ -4,12 +4,12 @@ import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig: FirebaseOptions = {
-  apiKey: "AIzaSyDETrbWHyd5Zw53RDyRj68ys5rGH60RH4Q",
-  authDomain: "connessia-leads.firebaseapp.com",
-  projectId: "connessia-leads",
-  storageBucket: "connessia-leads.firebasestorage.app",
-  messagingSenderId: "1004194060634",
-  appId: "1:1004194060634:web:c49f33c862280942c97b63"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 export const firebaseConfigured = true;
