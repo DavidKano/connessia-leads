@@ -37,8 +37,8 @@ import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
 import type { AppUser, Campaign, CommercialAsset, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
 import { formatDate, formatDateTime, normalizePhone, percent, renderTemplate } from "./utils/formatters";
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from "firebase/auth";
-import { auth } from "./services/firebase";
+import { onAuthStateChanged, signInWithEmailAndPassword, type User as FirebaseUser } from "firebase/auth";
+import { auth, firebaseConfigured } from "./services/firebase";
 import { useEffect } from "react";
 
 const inputClass =
@@ -173,13 +173,18 @@ export default function App() {
   const store = useCrmStore();
   const { state, metrics } = store;
   const [fbUser, setFbUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(firebaseConfigured);
   const [page, setPage] = useState<PageId>("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [identityOpen, setIdentityOpen] = useState(false);
 
   useEffect(() => {
+    if (!firebaseConfigured || !auth) {
+      setLoading(false);
+      return undefined;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setFbUser(user);
       setLoading(false);
@@ -191,6 +196,9 @@ export default function App() {
           role: "admin" // Default to admin for simplicity or fetch from DB
         });
       }
+    }, () => {
+      setFbUser(null);
+      setLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -203,7 +211,7 @@ export default function App() {
     );
   }
 
-  if (!fbUser) {
+  if (firebaseConfigured && !fbUser) {
     return <AuthScreen />;
   }
 
@@ -320,6 +328,7 @@ function AuthScreen() {
     setError("");
     setLoading(true);
     try {
+      if (!auth) throw new Error("Firebase Auth no esta configurado.");
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err: any) {
       setError("Error al iniciar sesión: " + (err.code === 'auth/invalid-credential' ? 'Credenciales incorrectas' : err.message));

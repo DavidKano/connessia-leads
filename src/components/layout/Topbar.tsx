@@ -43,7 +43,7 @@ export function Topbar({
           <Button 
             variant="secondary" 
             className="px-3" 
-            onClick={() => auth.signOut()}
+            onClick={() => auth?.signOut()}
             title="Cerrar Sesión"
           >
             <LogOut size={18} />
