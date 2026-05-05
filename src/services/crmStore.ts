@@ -58,7 +58,7 @@ import {
   loadMessagesFromFirestore,
   saveMessageToFirestore
 } from "./firestoreStore";
-import { configureFirebase } from "./firebase";
+import { configureFirebase, ensureFirebaseConfigured, getActiveFirebaseConfig } from "./firebase";
 import { normalizePhone } from "../utils/formatters";
 
 export interface CrmState {
@@ -209,10 +209,11 @@ function remoteOrCurrent<T>(remote: T[], current: T[]) {
 
 function resolveSettings(remoteSettings: Settings | null, currentSettings: Settings): Settings {
   const localFirebaseConfig = loadLocalFirebaseConfig();
+  const activeFirebaseConfig = getActiveFirebaseConfig();
   return {
     ...currentSettings,
     ...remoteSettings,
-    firebaseConfig: localFirebaseConfig ?? remoteSettings?.firebaseConfig ?? currentSettings.firebaseConfig
+    firebaseConfig: localFirebaseConfig ?? remoteSettings?.firebaseConfig ?? activeFirebaseConfig ?? currentSettings.firebaseConfig
   };
 }
 
@@ -245,7 +246,7 @@ export function useCrmStore() {
   useEffect(() => {
     async function loadAllData() {
       try {
-        const firebaseApp = configureFirebase(state.settings.firebaseConfig);
+        const firebaseApp = await ensureFirebaseConfigured(state.settings.firebaseConfig);
         if (!firebaseApp) {
           setToast("Firebase no esta configurado. Mantengo la copia local y no borro leads.");
           return;

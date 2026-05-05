@@ -30,6 +30,8 @@ export let app: FirebaseApp | null = null;
 export let auth: Auth | null = null;
 export let db: Firestore | null = null;
 export let storage: FirebaseStorage | null = null;
+let activeFirebaseConfig: FirebaseClientConfig | null = firebaseConfigured ? firebaseConfig as FirebaseClientConfig : null;
+let hostingConfigPromise: Promise<FirebaseClientConfig | null> | null = null;
 
 export function configureFirebase(config?: Partial<FirebaseClientConfig> | null) {
   if (app) return app;
@@ -40,10 +42,34 @@ export function configureFirebase(config?: Partial<FirebaseClientConfig> | null)
   auth = getAuth(app);
   db = getFirestore(app);
   storage = getStorage(app);
+  activeFirebaseConfig = nextConfig as FirebaseClientConfig;
   return app;
 }
 
 configureFirebase();
+
+async function loadHostingFirebaseConfig() {
+  if (typeof window === "undefined") return null;
+  if (!hostingConfigPromise) {
+    hostingConfigPromise = fetch("/__/firebase/init.json", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((config) => (hasFirebaseConfig(config) ? config as FirebaseClientConfig : null))
+      .catch(() => null);
+  }
+  return hostingConfigPromise;
+}
+
+export async function ensureFirebaseConfigured(config?: Partial<FirebaseClientConfig> | null) {
+  const configured = configureFirebase(config);
+  if (configured) return configured;
+
+  const hostingConfig = await loadHostingFirebaseConfig();
+  return configureFirebase(hostingConfig);
+}
+
+export function getActiveFirebaseConfig() {
+  return activeFirebaseConfig;
+}
 
 export function getFirebaseDb(config?: Partial<FirebaseClientConfig> | null) {
   configureFirebase(config);
