@@ -30,13 +30,13 @@ import { Button } from "./components/ui/Button";
 import { Card } from "./components/ui/Card";
 import { Modal } from "./components/ui/Modal";
 import { StatCard } from "./components/ui/StatCard";
-import { canSendToLead, enqueueCampaign, handleIncomingReply, processQueue } from "./services/campaignEngine";
+import { canSendToLead, enqueueCampaign, enqueuePositiveFollowup, handleIncomingReply, processQueue } from "./services/campaignEngine";
 import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
 import type { AppUser, Campaign, CommercialAsset, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
-import { formatDate, formatDateTime, percent, renderTemplate } from "./utils/formatters";
+import { formatDate, formatDateTime, normalizePhone, percent, renderTemplate } from "./utils/formatters";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from "firebase/auth";
 import { auth } from "./services/firebase";
 import { useEffect } from "react";
@@ -1022,6 +1022,11 @@ function formatFollowupDelay(campaign: Campaign) {
   return hours >= 24 ? `${hours / 24} dia(s)` : `${hours} horas`;
 }
 
+function queueComposerBody(item: QueueItem) {
+  if (!item.mediaUrl || item.body.includes(item.mediaUrl)) return item.body;
+  return `${item.body}\n\n${item.mediaUrl}`;
+}
+
 function CampaignsScreen({
   state,
   updateState,
@@ -1036,6 +1041,7 @@ function CampaignsScreen({
   const [checks, setChecks] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState(state.campaigns[0]?.id ?? "");
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [selectedChatId, setSelectedChatId] = useState("");
   const campaign = state.campaigns.find((item) => item.id === selectedId) ?? state.campaigns[0];
   const allChecked = complianceItems.every((item) => checks.includes(item));
   const campaignQueue = campaign ? state.queue.filter((item) => item.campaignId === campaign.id) : [];
@@ -1113,6 +1119,30 @@ function CampaignsScreen({
   const respondedCount = conversations.filter((item) => item.lastInbound).length;
   const waitingCount = conversations.filter((item) => item.status === "esperando_respuesta").length;
   const blockedCount = conversations.filter((item) => item.status === "bloqueado" || item.status === "revisar").length;
+  const selectedConversation = conversations.find((item) => item.lead.id === selectedChatId) ?? conversations[0];
+  const selectedTimeline = selectedConversation
+    ? [
+        ...selectedConversation.messages.map((message) => ({
+          id: message.id,
+          direction: message.direction,
+          body: message.mediaUrl && !message.body.includes(message.mediaUrl) ? `${message.body}\n\n${message.mediaUrl}` : message.body,
+          at: message.createdAt,
+          label: message.direction === "inbound" ? "Cliente" : "Tu"
+        })),
+        ...selectedConversation.queue
+          .filter((item) => item.status === "pending" || item.status === "processing")
+          .map((item) => ({
+            id: item.id,
+            direction: "outbound" as const,
+            body: queueComposerBody(item),
+            at: item.scheduledAt,
+            label: item.status === "processing" ? "Abierto en WhatsApp" : "Preparado"
+          }))
+      ].sort((a, b) => a.at.localeCompare(b.at))
+    : [];
+  const selectedSecondMessageSent = Boolean(
+    selectedConversation?.queue.some((item) => item.status === "sent" && item.messageType !== "template")
+  );
 
   async function activate() {
     const result = enqueueCampaign(state, campaign.id);
@@ -1195,7 +1225,7 @@ function CampaignsScreen({
   }
 
   function openQueueItem(item: QueueItem) {
-    openWhatsAppWebComposer(item.phone, item.body);
+    openWhatsAppWebComposer(item.phone, queueComposerBody(item));
     updateState(
       {
         ...state,
@@ -1241,7 +1271,7 @@ function CampaignsScreen({
       ? nextQueue.find((candidate) => candidate.id !== item.id && candidate.campaignId === item.campaignId && candidate.status === "pending")
       : undefined;
     if (nextPending) {
-      openWhatsAppWebComposer(nextPending.phone, nextPending.body);
+      openWhatsAppWebComposer(nextPending.phone, queueComposerBody(nextPending));
       nextQueue = nextQueue.map((candidate) =>
         candidate.id === nextPending.id
           ? { ...candidate, status: "processing" as const, errorMessage: "Chat abierto en WhatsApp Web. Confirma el envío manualmente." }
@@ -1283,7 +1313,27 @@ function CampaignsScreen({
   function registerQueueReply(item: QueueItem, reply: string, openFollowup = true) {
     const alreadyReplied = state.messages.some((message) => message.leadId === item.leadId && message.campaignId === item.campaignId && message.direction === "inbound");
     if (alreadyReplied) {
-      updateState(state, "Ese lead ya tiene una respuesta registrada. No se vuelve a generar seguimiento.");
+      if (reply === "SI") {
+        const result = enqueuePositiveFollowup(state, item.leadId, item.campaignId);
+        let nextState = result.state as typeof state;
+        const followup = nextState.queue.find((candidate) => candidate.leadId === item.leadId && candidate.campaignId === item.campaignId && candidate.status === "pending");
+
+        if (followup && openFollowup) {
+          openWhatsAppWebComposer(followup.phone, queueComposerBody(followup));
+          nextState = {
+            ...nextState,
+            queue: nextState.queue.map((candidate) =>
+              candidate.id === followup.id
+                ? { ...candidate, status: "processing", errorMessage: "Segundo mensaje abierto en WhatsApp Web." }
+                : candidate
+            )
+          };
+        }
+
+        updateState(nextState, followup ? "Segundo mensaje abierto para este lead." : result.notice);
+        return;
+      }
+      updateState(state, "Ese lead ya tiene una respuesta registrada.");
       return;
     }
     const result = handleIncomingReply(state, item.leadId, reply, item.campaignId);
@@ -1293,12 +1343,12 @@ function CampaignsScreen({
       : undefined;
 
     if (followup) {
-      openWhatsAppWebComposer(followup.phone, followup.body);
+      openWhatsAppWebComposer(followup.phone, queueComposerBody(followup));
       nextState = {
         ...nextState,
         queue: nextState.queue.map((candidate) =>
           candidate.id === followup.id
-            ? { ...candidate, status: "processing", errorMessage: "Seguimiento abierto en WhatsApp Web." }
+            ? { ...candidate, status: "processing", errorMessage: "Segundo mensaje abierto en WhatsApp Web." }
             : candidate
         )
       };
@@ -1384,7 +1434,165 @@ function CampaignsScreen({
             </div>
           )}
         </Card>
-        <Card className="p-5">
+        <Card className="overflow-hidden">
+          <div className="border-b border-slate-200 p-5">
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+              <div>
+                <h3 className="text-lg font-bold text-slate-950">Chats de la campana</h3>
+                <p className="text-sm text-slate-500">Trabaja cada lead como una conversacion y avanza al siguiente sin perder contexto.</p>
+              </div>
+              <Button variant="secondary" icon={<ExternalLink size={18} />} onClick={openNextQueueItem}>Abrir siguiente</Button>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-center text-xs xl:grid-cols-4">
+              <div className="rounded-md bg-slate-50 p-2"><strong className="block text-base text-slate-950">{activeQueue.filter((item) => item.status === "pending").length}</strong>Pendientes</div>
+              <div className="rounded-md bg-blue-50 p-2"><strong className="block text-base text-blue-900">{activeQueue.filter((item) => item.status === "processing").length}</strong>Abiertos</div>
+              <div className="rounded-md bg-amber-50 p-2"><strong className="block text-base text-amber-900">{waitingCount}</strong>Esperando</div>
+              <div className="rounded-md bg-emerald-50 p-2"><strong className="block text-base text-emerald-900">{respondedCount}</strong>Respondidos</div>
+            </div>
+            {blockedCount > 0 && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                Hay {blockedCount} contacto(s) que necesitan revision antes de avanzar.
+              </div>
+            )}
+          </div>
+          <div className="grid min-h-[560px] lg:grid-cols-[240px_1fr]">
+            <div className="border-b border-slate-200 bg-slate-50 lg:border-b-0 lg:border-r">
+              <div className="border-b border-slate-200 px-4 py-3">
+                <p className="text-xs font-bold uppercase text-slate-500">Chats activos</p>
+              </div>
+              <div className="max-h-[520px] overflow-y-auto">
+                {conversations.map((conversation) => {
+                  const isSelected = selectedConversation?.lead.id === conversation.lead.id;
+                  const lastText = conversation.lastInbound
+                    ? conversation.lastInbound.body
+                    : conversation.pending
+                      ? queueComposerBody(conversation.pending)
+                      : conversation.lastOutbound?.body ?? conversation.blockedReason ?? "Sin movimiento";
+                  return (
+                    <button
+                      key={conversation.lead.id}
+                      type="button"
+                      onClick={() => setSelectedChatId(conversation.lead.id)}
+                      className={`block w-full border-b border-slate-200 px-4 py-3 text-left transition ${isSelected ? "bg-white" : "bg-slate-50 hover:bg-white"}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
+                          <p className="truncate text-xs text-slate-500">{conversation.lead.personaContacto || normalizePhone(conversation.lead.telefono)}</p>
+                        </div>
+                        <span className={`mt-0.5 h-2.5 w-2.5 rounded-full ${
+                          conversation.status === "chat_abierto"
+                            ? "bg-blue-500"
+                            : conversation.status === "pendiente_envio"
+                              ? "bg-slate-400"
+                              : conversation.status === "respondio_si"
+                                ? "bg-emerald-500"
+                                : conversation.status === "esperando_respuesta"
+                                  ? "bg-amber-500"
+                                  : "bg-slate-300"
+                        }`} />
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-600">{lastText}</p>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <Badge value={conversationStatusLabel(conversation.status)} />
+                        <span className="text-[11px] font-semibold text-slate-400">{conversation.messages.length} msg</span>
+                      </div>
+                    </button>
+                  );
+                })}
+                {conversations.length === 0 && <p className="p-4 text-sm text-slate-500">Todavia no hay leads dentro de esta campana.</p>}
+              </div>
+            </div>
+            <div className="flex min-h-[560px] flex-col bg-[#efe7dc]">
+              {selectedConversation ? (
+                <>
+                  <div className="border-b border-slate-200 bg-white px-5 py-4">
+                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="font-bold text-slate-950">{selectedConversation.lead.nombreNegocio}</h4>
+                          <Badge value={conversationStatusLabel(selectedConversation.status)} />
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {selectedConversation.lead.personaContacto || "Sin contacto"} · {normalizePhone(selectedConversation.lead.telefono)}
+                        </p>
+                      </div>
+                      {selectedConversation.pending && (
+                        <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => openQueueItem(selectedConversation.pending as QueueItem)}>
+                          Abrir chat
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-3 overflow-y-auto p-5">
+                    {selectedTimeline.map((message) => (
+                      <div key={message.id} className={`flex ${message.direction === "inbound" ? "justify-start" : "justify-end"}`}>
+                        <div className={`max-w-[82%] rounded-lg px-3 py-2 text-sm shadow-sm ${message.direction === "inbound" ? "bg-white text-slate-800" : "bg-[#d9fdd3] text-slate-900"}`}>
+                          <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
+                            <span>{message.label}</span>
+                            <span>{formatDateTime(message.at)}</span>
+                          </div>
+                          <p className="whitespace-pre-wrap">{message.body}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {selectedTimeline.length === 0 && (
+                      <div className="rounded-md bg-white/80 p-4 text-sm text-slate-600">
+                        Aun no hay mensajes con este lead. Valida la campana para preparar el primer envio.
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t border-slate-200 bg-white p-4">
+                    <div className="flex flex-wrap gap-2">
+                      {selectedConversation.pending && (
+                        <>
+                          <Button variant="secondary" icon={<ClipboardCheck size={16} />} onClick={() => markQueueItemSent(selectedConversation.pending as QueueItem)}>
+                            Marcar enviado
+                          </Button>
+                          <Button icon={<Send size={16} />} onClick={() => markQueueItemSent(selectedConversation.pending as QueueItem, true)}>
+                            Enviado y siguiente
+                          </Button>
+                        </>
+                      )}
+                      {!selectedConversation.pending && selectedConversation.latestSent && !selectedConversation.lastInbound && (
+                        <>
+                          <Button variant="secondary" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "SI")}>Respuesta SI</Button>
+                          <Button variant="secondary" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "NO", false)}>Respuesta NO</Button>
+                          <Button variant="danger" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "BAJA", false)}>BAJA</Button>
+                        </>
+                      )}
+                      {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && selectedConversation.latestSent && !selectedSecondMessageSent && (
+                        <Button icon={<Send size={16} />} onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "SI")}>
+                          Preparar segundo mensaje
+                        </Button>
+                      )}
+                      {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && selectedSecondMessageSent && (
+                        <span className="inline-flex min-h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
+                          Segundo mensaje enviado.
+                        </span>
+                      )}
+                      {selectedConversation.lastInbound && selectedConversation.status !== "respondio_si" && (
+                        <span className="inline-flex min-h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
+                          Respuesta registrada.
+                        </span>
+                      )}
+                      {!selectedConversation.pending && !selectedConversation.lastInbound && selectedConversation.blockedReason && (
+                        <span className="inline-flex min-h-10 items-center rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950">
+                          {selectedConversation.blockedReason}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-slate-600">
+                  Selecciona una campana y encola leads para empezar a trabajar los chats.
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+        <Card className="hidden">
           <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
             <div>
               <h3 className="text-lg font-bold text-slate-950">Estado de conversaciones</h3>
@@ -1450,7 +1658,7 @@ function CampaignsScreen({
                       <>
                         <a
                           className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-connessia-300 hover:text-connessia-800"
-                          href={buildWhatsAppWebUrl(conversation.pending.phone, conversation.pending.body)}
+                          href={buildWhatsAppWebUrl(conversation.pending.phone, queueComposerBody(conversation.pending))}
                           target="_blank"
                           rel="noreferrer"
                           onClick={(event) => {

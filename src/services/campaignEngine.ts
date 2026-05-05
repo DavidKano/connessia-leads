@@ -33,6 +33,56 @@ function uid(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
+function positiveFollowupItems(
+  state: EngineState,
+  lead: Lead,
+  campaign: Campaign | undefined,
+  scheduledAt: string
+): QueueItem[] {
+  const infoTemplate = campaign?.plantillaInfoId
+    ? state.templates.find((template) => template.id === campaign.plantillaInfoId && template.estado === "aprobada")
+    : state.templates.find((template) => template.tipo === "plantilla_info" && template.estado === "aprobada");
+  const asset = campaign?.assetInfoId ? state.assets.find((item) => item.id === campaign.assetInfoId) : undefined;
+  const infoBody = infoTemplate ? renderTemplate(infoTemplate, lead, state.settings) : "";
+  const assetBlock = asset ? `${asset.name}\n${asset.url}` : "";
+  const body = [infoBody, assetBlock].filter(Boolean).join("\n\n");
+
+  if (!body) return [];
+
+  const alreadyPrepared = state.queue.some((item) => {
+    const sameLeadCampaign = item.leadId === lead.id && item.campaignId === campaign?.id;
+    const active = ["pending", "processing", "sent"].includes(item.status);
+    const sameInfoTemplate = Boolean(infoTemplate?.id && item.templateId === infoTemplate.id);
+    const sameAsset = Boolean(asset?.url && item.mediaUrl === asset.url);
+    const sameBody = item.body === body || (Boolean(infoBody) && item.body === infoBody);
+    return sameLeadCampaign && active && (sameInfoTemplate || sameAsset || sameBody);
+  });
+  const alreadySent = state.messages.some((message) => {
+    const sameLeadCampaign = message.leadId === lead.id && message.campaignId === campaign?.id;
+    const sameAsset = Boolean(asset?.url && message.mediaUrl === asset.url);
+    const sameBody = message.body === body || (Boolean(infoBody) && message.body === infoBody);
+    return sameLeadCampaign && message.direction === "outbound" && message.status === "sent" && (sameAsset || sameBody);
+  });
+
+  if (alreadyPrepared || alreadySent) return [];
+
+  return [
+    {
+      id: uid("queue"),
+      leadId: lead.id,
+      campaignId: campaign?.id,
+      phone: normalizePhone(lead.telefono),
+      messageType: asset ? "media" : "text",
+      templateId: infoTemplate?.id,
+      body,
+      mediaUrl: asset?.url,
+      status: "pending",
+      scheduledAt,
+      retries: 0
+    }
+  ];
+}
+
 export function canSendToLead(lead: Lead, doNotContact: DoNotContact[]) {
   const phone = normalizePhone(lead.telefono);
   if (!lead.tieneConsentimientoWhatsapp) return "No tiene consentimiento WhatsApp registrado.";
@@ -42,6 +92,33 @@ export function canSendToLead(lead: Lead, doNotContact: DoNotContact[]) {
     return "El lead está en la lista de exclusión.";
   }
   return null;
+}
+
+export function enqueuePositiveFollowup(state: EngineState, leadId: string, campaignId?: string): EngineResult {
+  const lead = state.leads.find((item) => item.id === leadId);
+  if (!lead) return { state, notice: "Lead no encontrado." };
+  const campaign = campaignId
+    ? state.campaigns.find((item) => item.id === campaignId)
+    : state.campaigns[0];
+  const now = new Date().toISOString();
+  const followups = positiveFollowupItems(state, lead, campaign, now);
+
+  if (followups.length === 0) {
+    return { state, notice: "No hay segundo mensaje nuevo que preparar para este lead." };
+  }
+
+  return {
+    state: {
+      ...state,
+      leads: state.leads.map((item) =>
+        item.id === leadId
+          ? { ...item, estado: "interesado", proximaAccion: "Enviar segundo mensaje", updatedAt: now }
+          : item
+      ),
+      queue: [...state.queue, ...followups]
+    },
+    notice: "Segundo mensaje preparado para enviar por WhatsApp Web."
+  };
 }
 
 export function enqueueCampaign(state: EngineState, campaignId: string): EngineResult {
@@ -211,22 +288,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
   };
 
   if (replyKind === "positive") {
-    const infoBody = templates.info ? renderTemplate(templates.info, lead, state.settings) : "";
-    const asset = campaign?.assetInfoId ? state.assets.find((item) => item.id === campaign.assetInfoId) : undefined;
-    const alreadyQueuedInfo = state.queue.some(
-      (item) => item.leadId === leadId && item.body === infoBody && ["pending", "processing", "sent"].includes(item.status)
-    );
-    const alreadySentInfo = state.messages.some(
-      (message) => message.leadId === leadId && message.direction === "outbound" && message.body === infoBody && message.status === "sent"
-    );
-    const shouldQueueInfo = Boolean(infoBody) && !alreadyQueuedInfo && !alreadySentInfo;
-    const alreadyQueuedAsset = asset
-      ? state.queue.some((item) => item.leadId === leadId && item.mediaUrl === asset.url && ["pending", "processing", "sent"].includes(item.status))
-      : false;
-    const alreadySentAsset = asset
-      ? state.messages.some((message) => message.leadId === leadId && message.direction === "outbound" && message.mediaUrl === asset.url && message.status === "sent")
-      : false;
-    const shouldQueueAsset = Boolean(asset) && !alreadyQueuedAsset && !alreadySentAsset;
+    const followups = positiveFollowupItems(state, lead, campaign, now);
     return {
       state: {
         ...state,
@@ -236,40 +298,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
             : item
         ),
         messages: [...state.messages, inbound],
-        queue: [
-          ...state.queue,
-          ...(shouldQueueInfo
-            ? [
-                {
-                  id: uid("queue"),
-                  leadId,
-                  campaignId: campaign?.id,
-                  phone: normalizePhone(lead.telefono),
-                  messageType: "text" as const,
-                  body: infoBody,
-                  status: "pending" as const,
-                  scheduledAt: now,
-                  retries: 0
-                }
-              ]
-            : []),
-          ...(asset && shouldQueueAsset
-            ? [
-                {
-                  id: uid("queue"),
-                  leadId,
-                  campaignId: campaign?.id,
-                  phone: normalizePhone(lead.telefono),
-                  messageType: "media" as const,
-                  body: asset.name,
-                  mediaUrl: asset.url,
-                  status: "pending" as const,
-                  scheduledAt: now,
-                  retries: 0
-                }
-              ]
-            : [])
-        ],
+        queue: [...state.queue, ...followups],
         tasks: [
           ...state.tasks,
           {
