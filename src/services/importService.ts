@@ -121,6 +121,7 @@ export function buildImportPreview(rows: Record<string, string>[], existingLeads
       email,
       direccion: row.direccion ?? "",
       ciudad: row.ciudad ?? "",
+      codigoPostal: row.codigo_postal ?? "",
       zona: row.zona ?? "",
       sector: row.sector ?? "",
       web: row.web ?? "",

@@ -20,6 +20,7 @@ export interface Lead {
   personaContacto: string;
   telefono: string;
   email?: string;
+  codigoPostal?: string;
   estado: LeadStatus;
   comercialAsignado?: string;
   tieneConsentimientoWhatsapp: boolean;

@@ -273,6 +273,7 @@ export function LeadFinderScreen() {
         email: "",
         direccion: fLead.direccion,
         ciudad: fLead.localidad,
+        codigoPostal: fLead.cp,
         zona: fLead.provincia,
         sector: fLead.tipo,
         web: fLead.web,
@@ -467,6 +468,7 @@ export function LeadFinderScreen() {
                     </th>
                     <th>Negocio</th>
                     <th>Dirección</th>
+                    <th>Código Postal</th>
                     <th>Teléfono</th>
                     <th>Web</th>
                   </tr>
@@ -484,6 +486,7 @@ export function LeadFinderScreen() {
                         <p className="text-xs text-slate-500">{lead.tipo}</p>
                       </td>
                       <td className="text-slate-600">{lead.direccion}</td>
+                      <td className="text-slate-600">{lead.cp}</td>
                       <td>{lead.telefono || <span className="opacity-30 italic">N/A</span>}</td>
                       <td>
                         {lead.web ? (

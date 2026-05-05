@@ -62,6 +62,7 @@ function emptyLead(assignedTo = "admin-demo"): Lead {
     email: "",
     direccion: "",
     ciudad: "",
+    codigoPostal: "",
     zona: "",
     sector: "",
     web: "",
@@ -754,6 +755,7 @@ function LeadFormModal({
         <Field label="Teléfono" value={draft.telefono} onChange={(value) => update("telefono", value)} />
         <Field label="Email" value={draft.email} onChange={(value) => update("email", value)} />
         <Field label="Ciudad" value={draft.ciudad} onChange={(value) => update("ciudad", value)} />
+        <Field label="Código Postal" value={draft.codigoPostal ?? ""} onChange={(value) => update("codigoPostal", value)} />
         <Field label="Zona" value={draft.zona} onChange={(value) => update("zona", value)} />
         <Field label="Sector" value={draft.sector} onChange={(value) => update("sector", value)} />
         <Field label="Web" value={draft.web} onChange={(value) => update("web", value)} />
@@ -900,7 +902,7 @@ function LeadDetailModal({
         <Info label="Contacto" value={lead.personaContacto} />
         <Info label="Teléfono" value={lead.telefono} />
         <Info label="Email" value={lead.email} />
-        <Info label="Dirección" value={`${lead.direccion}, ${lead.ciudad}`} />
+        <Info label="Dirección" value={`${lead.direccion}, ${lead.codigoPostal ? lead.codigoPostal + ' ' : ''}${lead.ciudad}`} />
         <Info label="Sector" value={lead.sector} />
         <Info label="Zona" value={lead.zona} />
         <Info label="Consentimiento" value={lead.tieneConsentimientoWhatsapp ? "Sí" : "No"} />

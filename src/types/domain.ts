@@ -64,6 +64,7 @@ export interface Lead {
   email: string;
   direccion: string;
   ciudad: string;
+  codigoPostal?: string;
   zona: string;
   sector: string;
   web: string;
