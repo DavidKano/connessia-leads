@@ -123,12 +123,19 @@ export interface Campaign {
   plantillaSeguimientoId?: string;
   plantillaInfoId?: string;
   assetInfoId?: string;
+  mensajesPostSi?: CampaignMessageStep[];
   maxSeguimientos: number;
   diasParaSeguimiento: number;
   dailyLimit?: number;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CampaignMessageStep {
+  step: 3 | 4;
+  templateId?: string;
+  assetId?: string;
 }
 
 export interface Message {
@@ -159,6 +166,7 @@ export interface QueueItem {
   providerMessageId?: string;
   errorMessage?: string;
   retries: number;
+  campaignStep?: number;
 }
 
 export interface DoNotContact {

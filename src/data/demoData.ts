@@ -267,6 +267,10 @@ export const demoCampaigns: Campaign[] = [
     plantillaSeguimientoId: "tpl-seguimiento",
     plantillaInfoId: "tpl-info",
     assetInfoId: "asset-demo-img",
+    mensajesPostSi: [
+      { step: 3 },
+      { step: 4 }
+    ],
     maxSeguimientos: 1,
     diasParaSeguimiento: 3,
     dailyLimit: 80,

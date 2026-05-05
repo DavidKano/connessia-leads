@@ -134,6 +134,10 @@ function emptyCampaign(userId = "admin-demo"): Campaign {
     plantillaSeguimientoId: "tpl-seguimiento",
     plantillaInfoId: "tpl-info",
     assetInfoId: undefined,
+    mensajesPostSi: [
+      { step: 3 },
+      { step: 4 }
+    ],
     maxSeguimientos: 1,
     diasParaSeguimiento: 3,
     dailyLimit: 80,
@@ -1033,7 +1037,30 @@ function formatFollowupDelay(campaign: Campaign) {
 
 function queueComposerBody(item: QueueItem) {
   if (!item.mediaUrl || item.body.includes(item.mediaUrl)) return item.body;
-  return `${item.body}\n\n${item.mediaUrl}`;
+  return `${item.body}\n\nPuedes abrir la demo aqui:\n${item.mediaUrl}`;
+}
+
+function campaignConfiguredSteps(campaign?: Campaign) {
+  if (!campaign) return [];
+  return [
+    { step: 2, hasContent: Boolean(campaign.plantillaInfoId || campaign.assetInfoId) },
+    ...(campaign.mensajesPostSi ?? []).map((item) => ({
+      step: item.step,
+      hasContent: Boolean(item.templateId || item.assetId)
+    }))
+  ].filter((item) => item.hasContent).map((item) => item.step);
+}
+
+function nextCampaignStepNumber(campaign: Campaign | undefined, queue: QueueItem[]) {
+  const sentSteps = new Set(
+    queue
+      .filter((item) => item.status === "sent" && typeof item.campaignStep === "number")
+      .map((item) => item.campaignStep as number)
+  );
+  if (queue.some((item) => item.status === "sent" && item.messageType !== "template" && !item.campaignStep)) {
+    sentSteps.add(2);
+  }
+  return campaignConfiguredSteps(campaign).find((step) => !sentSteps.has(step));
 }
 
 function CampaignsScreen({
@@ -1149,9 +1176,7 @@ function CampaignsScreen({
           }))
       ].sort((a, b) => a.at.localeCompare(b.at))
     : [];
-  const selectedSecondMessageSent = Boolean(
-    selectedConversation?.queue.some((item) => item.status === "sent" && item.messageType !== "template")
-  );
+  const selectedNextCampaignStep = selectedConversation ? nextCampaignStepNumber(campaign, selectedConversation.queue) : undefined;
 
   async function activate() {
     const result = enqueueCampaign(state, campaign.id);
@@ -1333,13 +1358,13 @@ function CampaignsScreen({
             ...nextState,
             queue: nextState.queue.map((candidate) =>
               candidate.id === followup.id
-                ? { ...candidate, status: "processing", errorMessage: "Segundo mensaje abierto en WhatsApp Web." }
+                ? { ...candidate, status: "processing", errorMessage: `Mensaje ${candidate.campaignStep ?? ""} abierto en WhatsApp Web.`.trim() }
                 : candidate
             )
           };
         }
 
-        updateState(nextState, followup ? "Segundo mensaje abierto para este lead." : result.notice);
+        updateState(nextState, followup ? `Mensaje ${followup.campaignStep ?? ""} abierto para este lead.` : result.notice);
         return;
       }
       updateState(state, "Ese lead ya tiene una respuesta registrada.");
@@ -1357,7 +1382,7 @@ function CampaignsScreen({
         ...nextState,
         queue: nextState.queue.map((candidate) =>
           candidate.id === followup.id
-            ? { ...candidate, status: "processing", errorMessage: "Segundo mensaje abierto en WhatsApp Web." }
+            ? { ...candidate, status: "processing", errorMessage: `Mensaje ${candidate.campaignStep ?? ""} abierto en WhatsApp Web.`.trim() }
             : candidate
         )
       };
@@ -1365,7 +1390,7 @@ function CampaignsScreen({
 
     updateState(
       nextState,
-      followup ? `${result.notice} Seguimiento abierto para el mismo lead.` : result.notice
+      followup ? `${result.notice} Mensaje ${followup.campaignStep ?? ""} abierto para el mismo lead.` : result.notice
     );
   }
 
@@ -1397,7 +1422,7 @@ function CampaignsScreen({
                 <Info label="Zonas" value={campaign.segmento.zonas.join(", ")} />
                 <Info label="Sectores" value={campaign.segmento.sectores.join(", ")} />
                 <Info label="Grupos" value={campaign.segmento.grupoIds.length ? campaign.segmento.grupoIds.map((id) => state.leadGroups.find((group) => group.id === id)?.nombre ?? id).join(", ") : "Todos"} />
-                <Info label="Asset tras SI" value={campaign.assetInfoId ? state.assets.find((asset) => asset.id === campaign.assetInfoId)?.name ?? "Asset no encontrado" : "Ninguno"} />
+                <Info label="Mensajes post SI" value={`${campaignConfiguredSteps(campaign).length} configurado(s)`} />
                 <Info label="Seguimiento sin respuesta" value={`${campaign.maxSeguimientos} tras ${formatFollowupDelay(campaign)}`} />
                 <Info label="Plantilla inicial" value={state.templates.find((tpl) => tpl.id === campaign.plantillaInicialId)?.nombre ?? ""} />
               </div>
@@ -1555,6 +1580,11 @@ function CampaignsScreen({
                     <div className="flex flex-wrap gap-2">
                       {selectedConversation.pending && (
                         <>
+                          {selectedConversation.pending.mediaUrl && (
+                            <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => window.open(selectedConversation.pending?.mediaUrl, "_blank", "noopener,noreferrer")}>
+                              Abrir asset
+                            </Button>
+                          )}
                           <Button variant="secondary" icon={<ClipboardCheck size={16} />} onClick={() => markQueueItemSent(selectedConversation.pending as QueueItem)}>
                             Marcar enviado
                           </Button>
@@ -1570,14 +1600,14 @@ function CampaignsScreen({
                           <Button variant="danger" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "BAJA", false)}>BAJA</Button>
                         </>
                       )}
-                      {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && selectedConversation.latestSent && !selectedSecondMessageSent && (
+                      {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && selectedConversation.latestSent && selectedNextCampaignStep && (
                         <Button icon={<Send size={16} />} onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "SI")}>
-                          Preparar segundo mensaje
+                          Preparar mensaje {selectedNextCampaignStep}
                         </Button>
                       )}
-                      {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && selectedSecondMessageSent && (
+                      {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && !selectedNextCampaignStep && (
                         <span className="inline-flex min-h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
-                          Segundo mensaje enviado.
+                          Secuencia de campaña completada.
                         </span>
                       )}
                       {selectedConversation.lastInbound && selectedConversation.status !== "respondio_si" && (
@@ -1895,12 +1925,14 @@ function CampaignFormModal({
   onSave: (campaign: Campaign) => void;
 }) {
   const [draft, setDraft] = useState(campaign);
+  const postSiSteps = draft.mensajesPostSi ?? [{ step: 3 as const }, { step: 4 as const }];
   const templateOptions = templates.filter(
     (template) =>
       template.estado === "aprobada" ||
       template.id === draft.plantillaInicialId ||
       template.id === draft.plantillaInfoId ||
-      template.id === draft.plantillaSeguimientoId
+      template.id === draft.plantillaSeguimientoId ||
+      postSiSteps.some((step) => step.templateId === template.id)
   );
 
   function toggleGroup(groupId: string, checked: boolean) {
@@ -1923,6 +1955,17 @@ function CampaignFormModal({
         [key]: value.split(",").map((item) => item.trim()).filter(Boolean)
       }
     }));
+  }
+
+  function updatePostSiStep(stepNumber: 3 | 4, patch: { templateId?: string; assetId?: string }) {
+    setDraft((current) => {
+      const existing = current.mensajesPostSi ?? [{ step: 3 as const }, { step: 4 as const }];
+      const nextSteps = [3, 4].map((step) => {
+        const currentStep = existing.find((item) => item.step === step) ?? { step: step as 3 | 4 };
+        return step === stepNumber ? { ...currentStep, ...patch } : currentStep;
+      });
+      return { ...current, mensajesPostSi: nextSteps };
+    });
   }
 
   return (
@@ -1978,6 +2021,34 @@ function CampaignFormModal({
             {assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} ({asset.type})</option>)}
           </select>
         </label>
+        <div className="md:col-span-2 rounded-lg border border-slate-200 p-4">
+          <h4 className="font-bold text-slate-950">Mensajes 3 y 4 de la campaña</h4>
+          <p className="mt-1 text-sm text-slate-500">Se preparan cuando marcas como enviado el mensaje anterior.</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {[3, 4].map((stepNumber) => {
+              const step = postSiSteps.find((item) => item.step === stepNumber);
+              return (
+                <div key={stepNumber} className="rounded-md bg-slate-50 p-3">
+                  <p className="mb-3 text-sm font-bold text-slate-950">Mensaje {stepNumber}</p>
+                  <label>
+                    <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Plantilla</span>
+                    <select className={inputClass} value={step?.templateId ?? ""} onChange={(event) => updatePostSiStep(stepNumber as 3 | 4, { templateId: event.target.value || undefined })}>
+                      <option value="">Sin plantilla</option>
+                      {templateOptions.map((template) => <option key={template.id} value={template.id}>{template.nombre}</option>)}
+                    </select>
+                  </label>
+                  <label className="mt-3 block">
+                    <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Asset opcional</span>
+                    <select className={inputClass} value={step?.assetId ?? ""} onChange={(event) => updatePostSiStep(stepNumber as 3 | 4, { assetId: event.target.value || undefined })}>
+                      <option value="">Sin asset</option>
+                      {assets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name} ({asset.type})</option>)}
+                    </select>
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        </div>
         <Field label="Seguimientos maximos" type="number" value={String(draft.maxSeguimientos)} onChange={(value) => setDraft({ ...draft, maxSeguimientos: Number(value) || 0 })} />
         <label className="md:col-span-2">
           <span className="mb-2 block text-sm font-semibold text-slate-700">Grupos de leads</span>

@@ -108,6 +108,7 @@ function loadState() {
       leads: (parsed.leads ?? initialState.leads).map((lead) => ({ ...lead, grupoIds: lead.grupoIds ?? [] })),
       campaigns: (parsed.campaigns ?? initialState.campaigns).map((campaign) => ({
         ...campaign,
+        mensajesPostSi: campaign.mensajesPostSi ?? [{ step: 3 }, { step: 4 }],
         segmento: {
           ...campaign.segmento,
           grupoIds: campaign.segmento.grupoIds ?? []
@@ -168,7 +169,7 @@ export function useCrmStore() {
           leads: remoteLeads.length > 0 ? remoteLeads.map(l => ({ ...l, grupoIds: l.grupoIds ?? [] })) : current.leads,
           leadGroups: remoteGroups.length > 0 ? remoteGroups : current.leadGroups,
           templates: remoteTemplates.length > 0 ? remoteTemplates : current.templates,
-          campaigns: remoteCampaigns.length > 0 ? remoteCampaigns.map(c => ({ ...c, segmento: { ...c.segmento, grupoIds: c.segmento.grupoIds ?? [] } })) : current.campaigns,
+          campaigns: remoteCampaigns.length > 0 ? remoteCampaigns.map(c => ({ ...c, mensajesPostSi: c.mensajesPostSi ?? [{ step: 3 }, { step: 4 }], segmento: { ...c.segmento, grupoIds: c.segmento.grupoIds ?? [] } })) : current.campaigns,
           assets: remoteAssets.length > 0 ? remoteAssets : current.assets,
           tasks: remoteTasks.length > 0 ? remoteTasks : current.tasks,
           demos: remoteDemos.length > 0 ? remoteDemos : current.demos,
@@ -356,7 +357,11 @@ export function useCrmStore() {
           plantillaInicialId: campaign.plantillaInicialId === templateId ? "" : campaign.plantillaInicialId,
           plantillaSeguimientoId: campaign.plantillaSeguimientoId === templateId ? undefined : campaign.plantillaSeguimientoId,
           plantillaInfoId: campaign.plantillaInfoId === templateId ? undefined : campaign.plantillaInfoId,
-          updatedAt: [campaign.plantillaInicialId, campaign.plantillaSeguimientoId, campaign.plantillaInfoId].includes(templateId)
+          mensajesPostSi: (campaign.mensajesPostSi ?? []).map((step) => ({
+            ...step,
+            templateId: step.templateId === templateId ? undefined : step.templateId
+          })),
+          updatedAt: [campaign.plantillaInicialId, campaign.plantillaSeguimientoId, campaign.plantillaInfoId, ...(campaign.mensajesPostSi ?? []).map((step) => step.templateId)].includes(templateId)
             ? new Date().toISOString()
             : campaign.updatedAt
         }))
@@ -417,7 +422,17 @@ export function useCrmStore() {
         ...state,
         assets: state.assets.filter((asset) => asset.id !== assetId),
         campaigns: state.campaigns.map((campaign) =>
-          campaign.assetInfoId === assetId ? { ...campaign, assetInfoId: undefined, updatedAt: new Date().toISOString() } : campaign
+          campaign.assetInfoId === assetId || (campaign.mensajesPostSi ?? []).some((step) => step.assetId === assetId)
+            ? {
+                ...campaign,
+                assetInfoId: campaign.assetInfoId === assetId ? undefined : campaign.assetInfoId,
+                mensajesPostSi: (campaign.mensajesPostSi ?? []).map((step) => ({
+                  ...step,
+                  assetId: step.assetId === assetId ? undefined : step.assetId
+                })),
+                updatedAt: new Date().toISOString()
+              }
+            : campaign
         )
       },
       "Asset eliminado."
