@@ -583,19 +583,73 @@ function LeadsScreen({
   const [sector, setSector] = useState("");
   const [city, setCity] = useState("");
   const [groupId, setGroupId] = useState("");
+  const [consent, setConsent] = useState("");
+  const [commercial, setCommercial] = useState("");
+  const [sortKey, setSortKey] = useState("");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [editing, setEditing] = useState<Lead | null>(null);
   const [editingGroup, setEditingGroup] = useState<LeadGroup | null>(null);
 
   const filtered = leads.filter((lead) => {
     const groupNames = groups.filter((group) => lead.grupoIds.includes(group.id)).map((group) => group.nombre).join(" ");
-    const text = `${lead.nombreNegocio} ${lead.personaContacto} ${lead.telefono} ${lead.email} ${lead.zona} ${groupNames}`.toLowerCase();
+    const text = `${lead.nombreNegocio} ${lead.personaContacto} ${lead.telefono} ${lead.email} ${lead.zona} ${lead.codigoPostal ?? ""} ${groupNames}`.toLowerCase();
+    
+    const matchConsent = consent === "" || (consent === "si" ? lead.tieneConsentimientoWhatsapp : !lead.tieneConsentimientoWhatsapp);
+    const matchCommercial = commercial === "" || lead.comercialAsignado === commercial;
+
     return (
       text.includes(query.toLowerCase()) &&
       (!status || lead.estado === status) &&
       (!sector || lead.sector === sector) &&
       (!city || lead.ciudad === city) &&
-      (!groupId || lead.grupoIds.includes(groupId))
+      (!groupId || lead.grupoIds.includes(groupId)) &&
+      matchConsent &&
+      matchCommercial
     );
+  });
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (!sortKey) return 0;
+    
+    let valA: any = "";
+    let valB: any = "";
+    
+    switch (sortKey) {
+      case "negocio": valA = a.nombreNegocio; valB = b.nombreNegocio; break;
+      case "sector": valA = a.sector; valB = b.sector; break;
+      case "zona": valA = a.zona; valB = b.zona; break;
+      case "ciudad": valA = a.ciudad; valB = b.ciudad; break;
+      case "cp": valA = a.codigoPostal || ""; valB = b.codigoPostal || ""; break;
+      case "grupos": 
+        valA = groups.filter(g => a.grupoIds.includes(g.id)).map(g => g.nombre).join(", ");
+        valB = groups.filter(g => b.grupoIds.includes(g.id)).map(g => g.nombre).join(", ");
+        break;
+      case "telefono": valA = a.telefono; valB = b.telefono; break;
+      case "email": valA = a.email; valB = b.email; break;
+      case "estado": valA = a.estado; valB = b.estado; break;
+      case "consentimiento": valA = a.tieneConsentimientoWhatsapp ? 1 : 0; valB = b.tieneConsentimientoWhatsapp ? 1 : 0; break;
+      case "comercial": 
+        valA = users.find(u => u.uid === a.comercialAsignado)?.nombre ?? a.comercialAsignado;
+        valB = users.find(u => u.uid === b.comercialAsignado)?.nombre ?? b.comercialAsignado;
+        break;
+      case "contacto": valA = a.ultimoContacto || ""; valB = b.ultimoContacto || ""; break;
+    }
+    
+    if (typeof valA === "string") valA = valA.toLowerCase();
+    if (typeof valB === "string") valB = valB.toLowerCase();
+    
+    if (valA < valB) return sortDir === "asc" ? -1 : 1;
+    if (valA > valB) return sortDir === "asc" ? 1 : -1;
+    return 0;
   });
 
   return (
@@ -606,26 +660,38 @@ function LeadsScreen({
         action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(currentUser.uid))}>Nuevo lead</Button>}
       />
       <Card className="p-4">
-        <div className="grid gap-3 md:grid-cols-5">
-          <label className="relative">
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
+          <label className="relative col-span-2 md:col-span-1">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
-            <input className={`${inputClass} pl-10`} placeholder="Buscar por negocio, zona, teléfono..." value={query} onChange={(event) => setQuery(event.target.value)} />
+            <input className={`${inputClass} pl-10`} placeholder="Buscar..." value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="">Todos los estados</option>
+            <option value="">Estados</option>
             {Array.from(new Set(leads.map((lead) => lead.estado))).map((item) => <option key={item}>{item}</option>)}
           </select>
           <select className={inputClass} value={sector} onChange={(event) => setSector(event.target.value)}>
-            <option value="">Todos los sectores</option>
+            <option value="">Sectores</option>
             {Array.from(new Set(leads.map((lead) => lead.sector).filter(Boolean))).map((item) => <option key={item}>{item}</option>)}
           </select>
           <select className={inputClass} value={city} onChange={(event) => setCity(event.target.value)}>
-            <option value="">Todas las ciudades</option>
+            <option value="">Ciudades</option>
             {Array.from(new Set(leads.map((lead) => lead.ciudad).filter(Boolean))).map((item) => <option key={item}>{item}</option>)}
           </select>
           <select className={inputClass} value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-            <option value="">Todos los grupos</option>
+            <option value="">Grupos</option>
             {groups.map((group) => <option key={group.id} value={group.id}>{group.nombre}</option>)}
+          </select>
+          <select className={inputClass} value={consent} onChange={(event) => setConsent(event.target.value)}>
+            <option value="">Consentimiento</option>
+            <option value="si">Sí</option>
+            <option value="no">No</option>
+          </select>
+          <select className={inputClass} value={commercial} onChange={(event) => setCommercial(event.target.value)}>
+            <option value="">Comerciales</option>
+            {Array.from(new Set(leads.map((lead) => lead.comercialAsignado).filter(Boolean))).map((item) => {
+              const u = users.find(u => u.uid === item);
+              return <option key={item} value={item}>{u?.nombre ?? item}</option>;
+            })}
           </select>
         </div>
       </Card>
@@ -652,52 +718,54 @@ function LeadsScreen({
       </Card>
       <Card className="overflow-hidden">
         <div className="overflow-x-auto table-scroll">
-          <table className="w-full min-w-[1250px] text-left text-sm">
+          <table className="w-full min-w-[1250px] text-left text-[13px]">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3">Negocio</th>
-                <th>Sector</th>
-                <th>Zona</th>
-                <th>Ciudad</th>
-                <th>Grupos</th>
-                <th>Teléfono</th>
-                <th>Email</th>
-                <th>Estado</th>
-                <th>Consentimiento</th>
-                <th>Comercial</th>
-                <th>Último contacto</th>
-                <th>Acción</th>
+                <th className="px-3 py-3 w-20">Acción</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('negocio')}>Negocio {sortKey === 'negocio' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('sector')}>Sector {sortKey === 'sector' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('zona')}>Zona {sortKey === 'zona' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('ciudad')}>Ciudad {sortKey === 'ciudad' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('cp')}>CP {sortKey === 'cp' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 min-w-[140px] cursor-pointer hover:bg-slate-100" onClick={() => handleSort('grupos')}>Grupos {sortKey === 'grupos' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('telefono')}>Teléfono {sortKey === 'telefono' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('email')}>Email {sortKey === 'email' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('estado')}>Estado {sortKey === 'estado' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 leading-tight text-center cursor-pointer hover:bg-slate-100" onClick={() => handleSort('consentimiento')}>Consen.<br/>Comerc. {sortKey === 'consentimiento' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('comercial')}>Comercial {sortKey === 'comercial' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('contacto')}>Últ. contacto {sortKey === 'contacto' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map((lead) => (
+              {sorted.map((lead) => (
                 <tr key={lead.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3">
-                    <button className="font-bold text-connessia-800" onClick={() => onSelect(lead.id)}>{lead.nombreNegocio}</button>
-                    <p className="text-xs text-slate-500">{lead.personaContacto}</p>
+                  <td className="px-3 py-3">
+                    <div className="flex gap-1">
+                      <Button variant="secondary" className="px-2 py-1 h-8" icon={<Edit3 size={14} />} onClick={() => setEditing(lead)} title="Editar lead" />
+                      <Button variant="danger" className="px-2 py-1 h-8" icon={<Trash2 size={14} />} onClick={() => window.confirm("Eliminar este lead y sus tareas/demos/mensajes?") && onDelete(lead.id)} title="Eliminar lead" />
+                    </div>
                   </td>
-                  <td>{lead.sector}</td>
-                  <td>{lead.zona}</td>
-                  <td>{lead.ciudad}</td>
-                  <td>
+                  <td className="px-3 py-3">
+                    <button className="font-bold text-connessia-800" onClick={() => onSelect(lead.id)}>{lead.nombreNegocio}</button>
+                    <p className="text-[11px] text-slate-500">{lead.personaContacto}</p>
+                  </td>
+                  <td className="px-3 py-3">{lead.sector}</td>
+                  <td className="px-3 py-3">{lead.zona}</td>
+                  <td className="px-3 py-3">{lead.ciudad}</td>
+                  <td className="px-3 py-3">{lead.codigoPostal}</td>
+                  <td className="px-3 py-3">
                     <div className="flex flex-wrap gap-1">
                       {groups.filter((group) => lead.grupoIds.includes(group.id)).map((group) => (
-                        <span key={group.id} className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{group.nombre}</span>
+                        <span key={group.id} className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 whitespace-nowrap">{group.nombre}</span>
                       ))}
                     </div>
                   </td>
-                  <td>{lead.telefono}</td>
-                  <td>{lead.email}</td>
-                  <td><Badge value={lead.estado} /></td>
-                  <td>{lead.tieneConsentimientoWhatsapp ? "Sí" : "No"}</td>
-                  <td>{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? lead.comercialAsignado}</td>
-                  <td>{formatDateTime(lead.ultimoContacto)}</td>
-                  <td>
-                    <div className="flex gap-1">
-                      <Button variant="secondary" className="px-2" icon={<Edit3 size={16} />} onClick={() => setEditing(lead)} title="Editar lead" />
-                      <Button variant="danger" className="px-2" icon={<Trash2 size={16} />} onClick={() => window.confirm("Eliminar este lead y sus tareas/demos/mensajes?") && onDelete(lead.id)} title="Eliminar lead" />
-                    </div>
-                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap">{lead.telefono}</td>
+                  <td className="px-3 py-3">{lead.email}</td>
+                  <td className="px-3 py-3"><Badge value={lead.estado} /></td>
+                  <td className="px-3 py-3 text-center font-medium">{lead.tieneConsentimientoWhatsapp ? "Sí" : "No"}</td>
+                  <td className="px-3 py-3">{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? lead.comercialAsignado}</td>
+                  <td className="px-3 py-3 text-xs">{formatDateTime(lead.ultimoContacto)}</td>
                 </tr>
               ))}
             </tbody>
