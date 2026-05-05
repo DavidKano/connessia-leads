@@ -1,5 +1,5 @@
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import type { AssetType } from "../types/domain";
+import type { AssetType, FirebaseClientConfig } from "../types/domain";
 import { getFirebaseStorage } from "./firebase";
 
 function assetTypeFromFile(file: File): AssetType {
@@ -8,8 +8,8 @@ function assetTypeFromFile(file: File): AssetType {
   return "imagen";
 }
 
-export async function uploadCommercialAsset(file: File) {
-  const storage = getFirebaseStorage();
+export async function uploadCommercialAsset(file: File, firebaseConfig?: Partial<FirebaseClientConfig>) {
+  const storage = getFirebaseStorage(firebaseConfig);
   if (!storage) throw new Error("Firebase Storage no esta configurado.");
 
   const cleanName = file.name.replace(/[^\w.-]+/g, "-").toLowerCase();

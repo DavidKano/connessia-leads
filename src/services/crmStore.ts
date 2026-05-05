@@ -58,6 +58,7 @@ import {
   loadMessagesFromFirestore,
   saveMessageToFirestore
 } from "./firestoreStore";
+import { configureFirebase } from "./firebase";
 import { normalizePhone } from "../utils/formatters";
 
 export interface CrmState {
@@ -95,7 +96,39 @@ const initialState: CrmState = {
 };
 
 function loadState() {
-  return initialState;
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return initialState;
+    const parsed = JSON.parse(raw) as Partial<CrmState>;
+    return {
+      ...initialState,
+      ...parsed,
+      currentUser: parsed.currentUser ?? initialState.currentUser,
+      users: parsed.users ?? initialState.users,
+      leads: (parsed.leads ?? initialState.leads).map((lead) => ({ ...lead, grupoIds: lead.grupoIds ?? [] })),
+      campaigns: (parsed.campaigns ?? initialState.campaigns).map((campaign) => ({
+        ...campaign,
+        segmento: {
+          ...campaign.segmento,
+          grupoIds: campaign.segmento.grupoIds ?? []
+        }
+      })),
+      settings: {
+        ...initialState.settings,
+        ...(parsed.settings ?? {}),
+        whatsappChannel: {
+          ...initialState.settings.whatsappChannel,
+          ...(parsed.settings?.whatsappChannel ?? {})
+        },
+        firebaseConfig: {
+          ...initialState.settings.firebaseConfig,
+          ...(parsed.settings?.firebaseConfig ?? {})
+        }
+      }
+    };
+  } catch {
+    return initialState;
+  }
 }
 
 export function useCrmStore() {
@@ -105,6 +138,7 @@ export function useCrmStore() {
   useEffect(() => {
     async function loadAllData() {
       try {
+        configureFirebase(state.settings.firebaseConfig);
         const [
           remoteLeads, 
           remoteGroups, 
@@ -155,6 +189,7 @@ export function useCrmStore() {
 
   function updateState(next: CrmState, notice?: string) {
     setState(next);
+    localStorage.setItem(storageKey, JSON.stringify(next));
     if (notice) setToast(notice);
   }
 
@@ -275,7 +310,10 @@ export function useCrmStore() {
 
   function updateSettings(settings: Settings) {
     updateState({ ...state, settings }, "Configuración guardada.");
-    saveSettingsToFirestore(settings);
+    configureFirebase(settings.firebaseConfig);
+    saveSettingsToFirestore(settings).catch((error) => {
+      setToast(`Configuracion guardada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function addDoNotContact(entry: Omit<DoNotContact, "id" | "createdAt">) {

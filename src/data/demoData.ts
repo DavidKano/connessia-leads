@@ -355,5 +355,14 @@ export const demoSettings: Settings = {
     phoneNumberId: "",
     webhookVerifyToken: "",
     connectionStatus: "pendiente"
+  },
+  firebaseConfig: {
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: "",
+    measurementId: ""
   }
 };

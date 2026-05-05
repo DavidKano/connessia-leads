@@ -240,6 +240,7 @@ export interface Settings {
     webhookVerifyToken: string;
     connectionStatus: "simulado" | "pendiente" | "conectado" | "error";
   };
+  firebaseConfig: FirebaseClientConfig;
 }
 
 export interface Metrics {

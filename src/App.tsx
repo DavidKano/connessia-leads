@@ -1867,6 +1867,7 @@ function AssetsScreen({
       {editing && (
         <AssetFormModal
           asset={editing}
+          firebaseConfig={state.settings.firebaseConfig}
           onClose={() => setEditing(null)}
           onSave={(asset) => {
             onSave(asset);
@@ -2002,10 +2003,12 @@ function CampaignFormModal({
 
 function AssetFormModal({
   asset,
+  firebaseConfig,
   onClose,
   onSave
 }: {
   asset: CommercialAsset;
+  firebaseConfig: Settings["firebaseConfig"];
   onClose: () => void;
   onSave: (asset: CommercialAsset) => void;
 }) {
@@ -2017,7 +2020,7 @@ function AssetFormModal({
     setUploading(true);
     setUploadError("");
     try {
-      const uploaded = await uploadCommercialAsset(file);
+      const uploaded = await uploadCommercialAsset(file, firebaseConfig);
       setDraft((current) => ({
         ...current,
         name: current.name || uploaded.name,
@@ -2393,6 +2396,23 @@ function WhatsappScreen({ settings, onSave }: { settings: Settings; onSave: (set
   const [draft, setDraft] = useState(settings);
   const updateChannel = (key: keyof Settings["whatsappChannel"], value: string) =>
     setDraft((current) => ({ ...current, whatsappProvider: key === "provider" ? (value as ProviderName) : current.whatsappProvider, whatsappChannel: { ...current.whatsappChannel, [key]: value } }));
+  const updateFirebase = (key: keyof Settings["firebaseConfig"], value: string) =>
+    setDraft((current) => ({
+      ...current,
+      firebaseConfig: {
+        ...current.firebaseConfig,
+        [key]: value,
+        updatedAt: new Date().toISOString()
+      }
+    }));
+  const firebaseReady = Boolean(
+    draft.firebaseConfig.apiKey &&
+    draft.firebaseConfig.authDomain &&
+    draft.firebaseConfig.projectId &&
+    draft.firebaseConfig.storageBucket &&
+    draft.firebaseConfig.messagingSenderId &&
+    draft.firebaseConfig.appId
+  );
 
   return (
     <div className="space-y-5">
@@ -2413,6 +2433,27 @@ function WhatsappScreen({ settings, onSave }: { settings: Settings; onSave: (set
           <Button onClick={() => onSave({ ...draft, whatsappProvider: draft.whatsappChannel.provider, whatsappChannel: { ...draft.whatsappChannel, connectionStatus: draft.whatsappChannel.provider === "whatsapp_web" ? "conectado" : "simulado" } })}>Guardar configuración</Button>
           <Button variant="secondary" icon={<ExternalLink size={18} />} onClick={() => openWhatsAppWebComposer(draft.whatsappChannel.businessPhone || "+34600000000", "Prueba de apertura desde Connessia Leads")}>Probar apertura</Button>
           <Button variant="danger" onClick={() => onSave({ ...draft, emergencyPaused: !draft.emergencyPaused })}>{draft.emergencyPaused ? "Reactivar envíos" : "Pausar todos los envíos"}</Button>
+        </div>
+      </Card>
+      <Card className="p-5">
+        <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
+          <div>
+            <h3 className="font-bold text-slate-950">Firebase para datos y assets</h3>
+            <p className="text-sm text-slate-500">Configura Firestore y Storage para guardar leads y subir archivos desde el panel.</p>
+          </div>
+          <Badge value={firebaseReady ? "configurado" : "pendiente"} />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="API key" value={draft.firebaseConfig.apiKey} onChange={(value) => updateFirebase("apiKey", value)} />
+          <Field label="Auth domain" value={draft.firebaseConfig.authDomain} onChange={(value) => updateFirebase("authDomain", value)} />
+          <Field label="Project ID" value={draft.firebaseConfig.projectId} onChange={(value) => updateFirebase("projectId", value)} />
+          <Field label="Storage bucket" value={draft.firebaseConfig.storageBucket} onChange={(value) => updateFirebase("storageBucket", value)} />
+          <Field label="Messaging sender ID" value={draft.firebaseConfig.messagingSenderId} onChange={(value) => updateFirebase("messagingSenderId", value)} />
+          <Field label="App ID" value={draft.firebaseConfig.appId} onChange={(value) => updateFirebase("appId", value)} />
+          <Field label="Measurement ID opcional" value={draft.firebaseConfig.measurementId ?? ""} onChange={(value) => updateFirebase("measurementId", value)} />
+        </div>
+        <div className="mt-5">
+          <Button onClick={() => onSave(draft)}>Guardar Firebase</Button>
         </div>
       </Card>
     </div>
