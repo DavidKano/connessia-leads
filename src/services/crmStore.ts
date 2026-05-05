@@ -239,6 +239,45 @@ function persistFirestoreSnapshot(state: CrmState, setToast: (message: string) =
   });
 }
 
+type PersistableEntity = { id: string };
+
+function hasEntityChanged<T extends PersistableEntity>(previousItems: T[], nextItem: T) {
+  const previousItem = previousItems.find((item) => item.id === nextItem.id);
+  return !previousItem || JSON.stringify(previousItem) !== JSON.stringify(nextItem);
+}
+
+function persistChangedEntities<T extends PersistableEntity>(
+  previousItems: T[],
+  nextItems: T[],
+  saveItem: (item: T) => Promise<void>
+) {
+  return nextItems
+    .filter((item) => hasEntityChanged(previousItems, item))
+    .map(saveItem);
+}
+
+function persistChangedFirestoreState(previous: CrmState, next: CrmState, setToast: (message: string) => void) {
+  const jobs = [
+    ...persistChangedEntities(previous.leads, next.leads, saveLeadToFirestore),
+    ...persistChangedEntities(previous.leadGroups, next.leadGroups, saveGroupToFirestore),
+    ...persistChangedEntities(previous.templates, next.templates, saveTemplateToFirestore),
+    ...persistChangedEntities(previous.campaigns, next.campaigns, saveCampaignToFirestore),
+    ...persistChangedEntities(previous.assets, next.assets, saveAssetToFirestore),
+    ...persistChangedEntities(previous.tasks, next.tasks, saveTaskToFirestore),
+    ...persistChangedEntities(previous.demos, next.demos, saveDemoToFirestore),
+    ...persistChangedEntities(previous.doNotContact, next.doNotContact, saveDNCToFirestore),
+    ...persistChangedEntities(previous.messages, next.messages, saveMessageToFirestore)
+  ];
+
+  if (jobs.length === 0) return;
+
+  Promise.allSettled(jobs).then((results) => {
+    const failed = results.find((result) => result.status === "rejected");
+    if (!failed || failed.status !== "rejected") return;
+    setToast(`Cambios guardados en copia local, pero Firestore fallo: ${failed.reason instanceof Error ? failed.reason.message : "revisa Firebase"}.`);
+  });
+}
+
 export function useCrmStore() {
   const [state, setState] = useState<CrmState>(() => loadState());
   const [toast, setToast] = useState("Modo WhatsApp Web activo. La app prepara mensajes y tú confirmas el envío.");
@@ -314,7 +353,7 @@ export function useCrmStore() {
     const normalized = normalizeLoadedState(next);
     setState(normalized);
     persistLocalState(normalized);
-    persistFirestoreSnapshot(normalized, setToast);
+    persistChangedFirestoreState(state, normalized, setToast);
     if (notice) setToast(notice);
   }
 
