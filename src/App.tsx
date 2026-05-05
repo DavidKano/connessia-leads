@@ -660,6 +660,27 @@ function LeadsScreen({
         action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(currentUser.uid))}>Nuevo lead</Button>}
       />
       <Card className="p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-slate-950">Grupos de leads</h3>
+            <p className="text-sm text-slate-500">Usalos para seleccionar clientes concretos al crear una campana.</p>
+          </div>
+          <Button icon={<Tags size={18} />} onClick={() => setEditingGroup(emptyLeadGroup())}>Nuevo grupo</Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {groups.map((group) => (
+            <div key={group.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: group.color }} />
+              <button className="font-semibold text-slate-800" onClick={() => setGroupId(group.id)}>{group.nombre}</button>
+              <span className="text-xs text-slate-500">{leads.filter((lead) => lead.grupoIds.includes(group.id)).length}</span>
+              <button className="text-slate-400 hover:text-slate-700" onClick={() => setEditingGroup(group)} title="Editar grupo"><Edit3 size={15} /></button>
+              <button className="text-slate-400 hover:text-coral-700" onClick={() => onDeleteGroup(group.id)} title="Eliminar grupo"><Trash2 size={15} /></button>
+            </div>
+          ))}
+          {groups.length === 0 && <p className="text-sm text-slate-500">Aun no hay grupos.</p>}
+        </div>
+      </Card>
+      <Card className="p-4">
         <div className="grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
           <label className="relative col-span-2 md:col-span-1">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
@@ -695,30 +716,9 @@ function LeadsScreen({
           </select>
         </div>
       </Card>
-      <Card className="p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-slate-950">Grupos de leads</h3>
-            <p className="text-sm text-slate-500">Usalos para seleccionar clientes concretos al crear una campana.</p>
-          </div>
-          <Button icon={<Tags size={18} />} onClick={() => setEditingGroup(emptyLeadGroup())}>Nuevo grupo</Button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {groups.map((group) => (
-            <div key={group.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
-              <span className="h-3 w-3 rounded-full" style={{ backgroundColor: group.color }} />
-              <button className="font-semibold text-slate-800" onClick={() => setGroupId(group.id)}>{group.nombre}</button>
-              <span className="text-xs text-slate-500">{leads.filter((lead) => lead.grupoIds.includes(group.id)).length}</span>
-              <button className="text-slate-400 hover:text-slate-700" onClick={() => setEditingGroup(group)} title="Editar grupo"><Edit3 size={15} /></button>
-              <button className="text-slate-400 hover:text-coral-700" onClick={() => onDeleteGroup(group.id)} title="Eliminar grupo"><Trash2 size={15} /></button>
-            </div>
-          ))}
-          {groups.length === 0 && <p className="text-sm text-slate-500">Aun no hay grupos.</p>}
-        </div>
-      </Card>
       <Card className="overflow-hidden">
         <div className="overflow-x-auto table-scroll">
-          <table className="w-full min-w-[1250px] text-left text-[13px]">
+          <table className="w-full min-w-[1250px] text-left text-[12px]">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-3 py-3 w-20">Acción</th>
@@ -740,13 +740,17 @@ function LeadsScreen({
               {sorted.map((lead) => (
                 <tr key={lead.id} className="hover:bg-slate-50">
                   <td className="px-3 py-3">
-                    <div className="flex gap-1">
-                      <Button variant="secondary" className="px-2 py-1 h-8" icon={<Edit3 size={14} />} onClick={() => setEditing(lead)} title="Editar lead" />
-                      <Button variant="danger" className="px-2 py-1 h-8" icon={<Trash2 size={14} />} onClick={() => window.confirm("Eliminar este lead y sus tareas/demos/mensajes?") && onDelete(lead.id)} title="Eliminar lead" />
+                    <div className="flex gap-3">
+                      <button className="text-slate-400 hover:text-connessia-600 transition-colors" onClick={() => setEditing(lead)} title="Editar lead">
+                        <Edit3 size={18} />
+                      </button>
+                      <button className="text-slate-400 hover:text-coral-600 transition-colors" onClick={() => window.confirm("Eliminar este lead y sus tareas/demos/mensajes?") && onDelete(lead.id)} title="Eliminar lead">
+                        <Trash2 size={18} />
+                      </button>
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    <button className="font-bold text-connessia-800" onClick={() => onSelect(lead.id)}>{lead.nombreNegocio}</button>
+                    <button className="text-left font-bold text-connessia-800" onClick={() => onSelect(lead.id)}>{lead.nombreNegocio}</button>
                     <p className="text-[11px] text-slate-500">{lead.personaContacto}</p>
                   </td>
                   <td className="px-3 py-3">{lead.sector}</td>
