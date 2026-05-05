@@ -1036,8 +1036,7 @@ function formatFollowupDelay(campaign: Campaign) {
 }
 
 function queueComposerBody(item: QueueItem) {
-  if (!item.mediaUrl || item.body.includes(item.mediaUrl)) return item.body;
-  return `${item.body}\n\nPuedes abrir la demo aqui:\n${item.mediaUrl}`;
+  return item.body;
 }
 
 function campaignConfiguredSteps(campaign?: Campaign) {
@@ -1161,7 +1160,7 @@ function CampaignsScreen({
         ...selectedConversation.messages.map((message) => ({
           id: message.id,
           direction: message.direction,
-          body: message.mediaUrl && !message.body.includes(message.mediaUrl) ? `${message.body}\n\n${message.mediaUrl}` : message.body,
+          body: message.body,
           at: message.createdAt,
           label: message.direction === "inbound" ? "Cliente" : "Tu"
         })),

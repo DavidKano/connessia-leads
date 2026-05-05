@@ -53,7 +53,9 @@ function campaignSteps(campaign: Campaign | undefined): ResolvedCampaignStep[] {
 }
 
 function assetMessageText(asset: CommercialAsset) {
-  return `Puedes abrir la demo aqui:\n${asset.url}`;
+  if (asset.type === "video") return "Te paso el video demo por aqui.";
+  if (asset.type === "pdf") return "Te paso el documento con la informacion por aqui.";
+  return "Te paso la demo visual por aqui.";
 }
 
 function buildStepQueueItem(
