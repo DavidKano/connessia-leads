@@ -2678,6 +2678,9 @@ function LegacyWhatsappScreen({ settings, onSave }: { settings: Settings; onSave
 
 function WhatsappScreen({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
   const [draft, setDraft] = useState(settings);
+  useEffect(() => {
+    setDraft(settings);
+  }, [settings]);
   const updateChannel = (key: keyof Settings["whatsappChannel"], value: string) =>
     setDraft((current) => ({ ...current, whatsappProvider: key === "provider" ? (value as ProviderName) : current.whatsappProvider, whatsappChannel: { ...current.whatsappChannel, [key]: value } }));
   const updateFirebase = (key: keyof Settings["firebaseConfig"], value: string) =>

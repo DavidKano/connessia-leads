@@ -78,6 +78,7 @@ export interface CrmState {
 }
 
 const storageKey = "connessia-leads-demo-state";
+const firebaseConfigStorageKey = "connessia-firebase-config";
 
 const emptyRuntimeState = {
   leads: [],
@@ -114,17 +115,29 @@ function loadState(): CrmState {
 
   try {
     const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return cleanState;
+    const savedFirebaseConfig = loadLocalFirebaseConfig();
+    if (!raw) {
+      return savedFirebaseConfig
+        ? { ...cleanState, settings: { ...cleanState.settings, firebaseConfig: savedFirebaseConfig } }
+        : cleanState;
+    }
     const stored = JSON.parse(raw) as Partial<CrmState>;
     return normalizeLoadedState({
       ...cleanState,
       ...stored,
       users: stored.users?.length ? stored.users : cleanState.users,
       currentUser: stored.currentUser ?? cleanState.currentUser,
-      settings: { ...cleanState.settings, ...stored.settings }
+      settings: {
+        ...cleanState.settings,
+        ...stored.settings,
+        firebaseConfig: savedFirebaseConfig ?? stored.settings?.firebaseConfig ?? cleanState.settings.firebaseConfig
+      }
     });
   } catch {
-    return cleanState;
+    const savedFirebaseConfig = loadLocalFirebaseConfig();
+    return savedFirebaseConfig
+      ? { ...cleanState, settings: { ...cleanState.settings, firebaseConfig: savedFirebaseConfig } }
+      : cleanState;
   }
 }
 
@@ -151,13 +164,56 @@ function persistLocalState(state: CrmState) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(storageKey, JSON.stringify(state));
+    persistLocalFirebaseConfig(state.settings.firebaseConfig);
   } catch {
     // Local backup is best effort. Firestore remains the main persistence layer.
   }
 }
 
+function loadLocalFirebaseConfig(): Settings["firebaseConfig"] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(firebaseConfigStorageKey);
+    if (!raw) return null;
+    const config = JSON.parse(raw) as Settings["firebaseConfig"];
+    return isFirebaseConfigFilled(config) ? config : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistLocalFirebaseConfig(config: Settings["firebaseConfig"]) {
+  if (typeof window === "undefined") return;
+  if (!isFirebaseConfigFilled(config)) return;
+  try {
+    window.localStorage.setItem(firebaseConfigStorageKey, JSON.stringify(config));
+  } catch {
+    // Best effort local persistence for the admin Firebase form.
+  }
+}
+
+function isFirebaseConfigFilled(config?: Partial<Settings["firebaseConfig"]> | null) {
+  return Boolean(
+    config?.apiKey &&
+      config?.authDomain &&
+      config?.projectId &&
+      config?.storageBucket &&
+      config?.messagingSenderId &&
+      config?.appId
+  );
+}
+
 function remoteOrCurrent<T>(remote: T[], current: T[]) {
   return remote.length > 0 ? remote : current;
+}
+
+function resolveSettings(remoteSettings: Settings | null, currentSettings: Settings): Settings {
+  const localFirebaseConfig = loadLocalFirebaseConfig();
+  return {
+    ...currentSettings,
+    ...remoteSettings,
+    firebaseConfig: localFirebaseConfig ?? remoteSettings?.firebaseConfig ?? currentSettings.firebaseConfig
+  };
 }
 
 function persistFirestoreSnapshot(state: CrmState, setToast: (message: string) => void) {
@@ -229,7 +285,7 @@ export function useCrmStore() {
             tasks: remoteOrCurrent(remoteTasks, current.tasks),
             demos: remoteOrCurrent(remoteDemos, current.demos),
             doNotContact: remoteOrCurrent(remoteDNC, current.doNotContact),
-            settings: remoteSettings || current.settings,
+            settings: resolveSettings(remoteSettings, current.settings),
             messages: remoteOrCurrent(remoteMessages, current.messages)
           });
           persistLocalState(next);
