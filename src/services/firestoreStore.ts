@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDocs, setDoc, query, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDocs, setDoc } from "firebase/firestore";
 import { getFirebaseDb } from "./firebase";
 import type { 
   Lead, 
@@ -29,20 +29,20 @@ const COLLECTIONS = {
 
 async function getAll<T>(collectionName: string): Promise<T[]> {
   const db = getFirebaseDb();
-  if (!db) return [];
+  if (!db) throw new Error("Firebase no esta configurado.");
   const snapshot = await getDocs(collection(db, collectionName));
   return snapshot.docs.map((item) => item.data() as T);
 }
 
 async function saveOne(collectionName: string, id: string, data: any) {
   const db = getFirebaseDb();
-  if (!db) return;
+  if (!db) throw new Error("Firebase no esta configurado.");
   await setDoc(doc(db, collectionName, id), data);
 }
 
 async function deleteOne(collectionName: string, id: string) {
   const db = getFirebaseDb();
-  if (!db) return;
+  if (!db) throw new Error("Firebase no esta configurado.");
   await deleteDoc(doc(db, collectionName, id));
 }
 
@@ -88,7 +88,7 @@ export const saveDNCToFirestore = (dnc: DoNotContact) => saveOne(COLLECTIONS.DNC
 // Settings
 export async function loadSettingsFromFirestore(): Promise<Settings | null> {
   const db = getFirebaseDb();
-  if (!db) return null;
+  if (!db) throw new Error("Firebase no esta configurado.");
   const snapshot = await getDocs(collection(db, COLLECTIONS.SETTINGS));
   if (snapshot.empty) return null;
   return snapshot.docs[0].data() as Settings;

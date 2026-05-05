@@ -79,6 +79,19 @@ export interface CrmState {
 
 const storageKey = "connessia-leads-demo-state";
 
+const emptyRuntimeState = {
+  leads: [],
+  leadGroups: [],
+  templates: [],
+  campaigns: [],
+  messages: [],
+  queue: [],
+  doNotContact: [],
+  tasks: [],
+  demos: [],
+  assets: []
+};
+
 const initialState: CrmState = {
   users: demoUsers,
   currentUser: demoUsers[0],
@@ -96,19 +109,77 @@ const initialState: CrmState = {
 };
 
 function loadState(): CrmState {
+  const cleanState = { ...initialState, ...emptyRuntimeState };
+  if (typeof window === "undefined") return cleanState;
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return cleanState;
+    const stored = JSON.parse(raw) as Partial<CrmState>;
+    return normalizeLoadedState({
+      ...cleanState,
+      ...stored,
+      users: stored.users?.length ? stored.users : cleanState.users,
+      currentUser: stored.currentUser ?? cleanState.currentUser,
+      settings: { ...cleanState.settings, ...stored.settings }
+    });
+  } catch {
+    return cleanState;
+  }
+}
+
+function normalizeCampaign(campaign: Campaign): Campaign {
   return {
-    ...initialState,
-    leads: [],
-    leadGroups: [],
-    templates: [],
-    campaigns: [],
-    messages: [],
-    queue: [],
-    doNotContact: [],
-    tasks: [],
-    demos: [],
-    assets: []
+    ...campaign,
+    mensajesPostSi: campaign.mensajesPostSi ?? [{ step: 3 }, { step: 4 }],
+    segmento: {
+      ...campaign.segmento,
+      grupoIds: campaign.segmento.grupoIds ?? []
+    }
   };
+}
+
+function normalizeLoadedState(state: CrmState): CrmState {
+  return {
+    ...state,
+    leads: state.leads.map((lead) => ({ ...lead, grupoIds: lead.grupoIds ?? [] })),
+    campaigns: state.campaigns.map(normalizeCampaign)
+  };
+}
+
+function persistLocalState(state: CrmState) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(state));
+  } catch {
+    // Local backup is best effort. Firestore remains the main persistence layer.
+  }
+}
+
+function remoteOrCurrent<T>(remote: T[], current: T[]) {
+  return remote.length > 0 ? remote : current;
+}
+
+function persistFirestoreSnapshot(state: CrmState, setToast: (message: string) => void) {
+  const jobs = [
+    ...state.leads.map(saveLeadToFirestore),
+    ...state.leadGroups.map(saveGroupToFirestore),
+    ...state.templates.map(saveTemplateToFirestore),
+    ...state.campaigns.map(saveCampaignToFirestore),
+    ...state.assets.map(saveAssetToFirestore),
+    ...state.tasks.map(saveTaskToFirestore),
+    ...state.demos.map(saveDemoToFirestore),
+    ...state.doNotContact.map(saveDNCToFirestore),
+    ...state.messages.map(saveMessageToFirestore)
+  ];
+
+  if (jobs.length === 0) return;
+
+  Promise.allSettled(jobs).then((results) => {
+    const failed = results.find((result) => result.status === "rejected");
+    if (!failed || failed.status !== "rejected") return;
+    setToast(`Cambios guardados en copia local, pero Firestore fallo: ${failed.reason instanceof Error ? failed.reason.message : "revisa Firebase"}.`);
+  });
 }
 
 export function useCrmStore() {
@@ -118,7 +189,11 @@ export function useCrmStore() {
   useEffect(() => {
     async function loadAllData() {
       try {
-        configureFirebase(state.settings.firebaseConfig);
+        const firebaseApp = configureFirebase(state.settings.firebaseConfig);
+        if (!firebaseApp) {
+          setToast("Firebase no esta configurado. Mantengo la copia local y no borro leads.");
+          return;
+        }
         const [
           remoteLeads, 
           remoteGroups, 
@@ -143,23 +218,34 @@ export function useCrmStore() {
           loadMessagesFromFirestore()
         ]);
 
-        setState((current) => ({
-          ...current,
-          leads: remoteLeads.map(l => ({ ...l, grupoIds: l.grupoIds ?? [] })),
-          leadGroups: remoteGroups,
-          templates: remoteTemplates,
-          campaigns: remoteCampaigns.map(c => ({ ...c, mensajesPostSi: c.mensajesPostSi ?? [{ step: 3 }, { step: 4 }], segmento: { ...c.segmento, grupoIds: c.segmento.grupoIds ?? [] } })),
-          assets: remoteAssets,
-          tasks: remoteTasks,
-          demos: remoteDemos,
-          doNotContact: remoteDNC,
-          settings: remoteSettings || current.settings,
-          messages: remoteMessages
-        }));
+        setState((current) => {
+          const next = normalizeLoadedState({
+            ...current,
+            leads: remoteOrCurrent(remoteLeads, current.leads),
+            leadGroups: remoteOrCurrent(remoteGroups, current.leadGroups),
+            templates: remoteOrCurrent(remoteTemplates, current.templates),
+            campaigns: remoteOrCurrent(remoteCampaigns, current.campaigns),
+            assets: remoteOrCurrent(remoteAssets, current.assets),
+            tasks: remoteOrCurrent(remoteTasks, current.tasks),
+            demos: remoteOrCurrent(remoteDemos, current.demos),
+            doNotContact: remoteOrCurrent(remoteDNC, current.doNotContact),
+            settings: remoteSettings || current.settings,
+            messages: remoteOrCurrent(remoteMessages, current.messages)
+          });
+          persistLocalState(next);
+          if (remoteLeads.length === 0 && next.leads.length > 0) {
+            persistFirestoreSnapshot(next, setToast);
+          }
+          return next;
+        });
         
-        setToast("Datos sincronizados con Firestore.");
+        setToast(
+          remoteLeads.length === 0
+            ? "Firestore no devolvio leads. Mantengo la copia local para no perder contactos."
+            : "Datos sincronizados con Firestore."
+        );
       } catch (error) {
-        setToast(`Error al sincronizar con Firestore: ${error instanceof Error ? error.message : "Desconocido"}`);
+        setToast(`Error al sincronizar con Firestore. Mantengo la copia local: ${error instanceof Error ? error.message : "Desconocido"}`);
       }
     }
     loadAllData();
@@ -168,7 +254,10 @@ export function useCrmStore() {
   const metrics = useMemo(() => calculateMetrics(state), [state]);
 
   function updateState(next: CrmState, notice?: string) {
-    setState(next);
+    const normalized = normalizeLoadedState(next);
+    setState(normalized);
+    persistLocalState(normalized);
+    persistFirestoreSnapshot(normalized, setToast);
     if (notice) setToast(notice);
   }
 
@@ -247,7 +336,9 @@ export function useCrmStore() {
       },
       exists ? "Grupo actualizado." : "Grupo creado."
     );
-    saveGroupToFirestore(groupToSave);
+    saveGroupToFirestore(groupToSave).catch((error) => {
+      setToast(`Grupo guardado localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function deleteLeadGroup(groupId: string) {
@@ -266,7 +357,9 @@ export function useCrmStore() {
       },
       "Grupo eliminado."
     );
-    deleteGroupFromFirestore(groupId);
+    deleteGroupFromFirestore(groupId).catch((error) => {
+      setToast(`Grupo eliminado localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function importLeads(leads: Lead[]) {
@@ -274,8 +367,11 @@ export function useCrmStore() {
       { ...state, leads: [...leads, ...state.leads] },
       `${leads.length} leads importados.`
     );
-    // Note: In a real scenario we'd batch this
-    leads.forEach(l => saveLeadToFirestore(l));
+    Promise.allSettled(leads.map(saveLeadToFirestore)).then((results) => {
+      if (results.some((result) => result.status === "rejected")) {
+        setToast("Leads importados en copia local, pero alguno no se guardo en Firestore. Revisa Firebase.");
+      }
+    });
   }
 
   function updateLeadStatus(leadId: string, estado: Lead["estado"]) {
@@ -304,7 +400,9 @@ export function useCrmStore() {
       },
       "Contacto añadido a lista de exclusión."
     );
-    saveDNCToFirestore(newDnc);
+    saveDNCToFirestore(newDnc).catch((error) => {
+      setToast(`Exclusion guardada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function upsertTemplate(template: MessageTemplate) {
@@ -322,7 +420,9 @@ export function useCrmStore() {
       },
       exists ? "Plantilla actualizada." : "Plantilla creada."
     );
-    saveTemplateToFirestore(templateToSave);
+    saveTemplateToFirestore(templateToSave).catch((error) => {
+      setToast(`Plantilla guardada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function deleteTemplate(templateId: string) {
@@ -346,7 +446,9 @@ export function useCrmStore() {
       },
       "Plantilla eliminada."
     );
-    deleteTemplateFromFirestore(templateId);
+    deleteTemplateFromFirestore(templateId).catch((error) => {
+      setToast(`Plantilla eliminada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function updateCampaign(campaign: Campaign) {
@@ -360,7 +462,9 @@ export function useCrmStore() {
       },
       exists ? "Campaña actualizada." : "Campaña creada."
     );
-    saveCampaignToFirestore(campaign);
+    saveCampaignToFirestore(campaign).catch((error) => {
+      setToast(`Campana guardada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function deleteCampaign(campaignId: string) {
@@ -373,7 +477,9 @@ export function useCrmStore() {
       },
       "Campaña eliminada."
     );
-    deleteCampaignFromFirestore(campaignId);
+    deleteCampaignFromFirestore(campaignId).catch((error) => {
+      setToast(`Campana eliminada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function upsertAsset(asset: CommercialAsset) {
@@ -391,7 +497,9 @@ export function useCrmStore() {
       },
       exists ? "Asset actualizado." : "Asset creado."
     );
-    saveAssetToFirestore(assetToSave);
+    saveAssetToFirestore(assetToSave).catch((error) => {
+      setToast(`Asset guardado localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function deleteAsset(assetId: string) {
@@ -415,7 +523,9 @@ export function useCrmStore() {
       },
       "Asset eliminado."
     );
-    deleteAssetFromFirestore(assetId);
+    deleteAssetFromFirestore(assetId).catch((error) => {
+      setToast(`Asset eliminado localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function upsertTask(task: Task) {
@@ -433,12 +543,16 @@ export function useCrmStore() {
       },
       exists ? "Tarea actualizada." : "Tarea creada."
     );
-    saveTaskToFirestore(taskToSave);
+    saveTaskToFirestore(taskToSave).catch((error) => {
+      setToast(`Tarea guardada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function deleteTask(taskId: string) {
     updateState({ ...state, tasks: state.tasks.filter((task) => task.id !== taskId) }, "Tarea eliminada.");
-    deleteTaskFromFirestore(taskId);
+    deleteTaskFromFirestore(taskId).catch((error) => {
+      setToast(`Tarea eliminada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function upsertDemo(demo: Demo) {
@@ -456,12 +570,16 @@ export function useCrmStore() {
       },
       exists ? "Demo actualizada." : "Demo creada."
     );
-    saveDemoToFirestore(demoToSave);
+    saveDemoToFirestore(demoToSave).catch((error) => {
+      setToast(`Demo guardada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   function deleteDemo(demoId: string) {
     updateState({ ...state, demos: state.demos.filter((demo) => demo.id !== demoId) }, "Demo eliminada.");
-    deleteDemoFromFirestore(demoId);
+    deleteDemoFromFirestore(demoId).catch((error) => {
+      setToast(`Demo eliminada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
   }
 
   return {
