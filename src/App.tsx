@@ -1210,10 +1210,17 @@ function CampaignsScreen({
     ...campaignQueue.map((item) => item.leadId),
     ...campaignMessages.map((message) => message.leadId)
   ]));
-  const conversations = conversationLeadIds
+  const allConversations = conversationLeadIds
     .map((leadId) => {
       const lead = state.leads.find((item) => item.id === leadId);
       if (!lead) return null;
+      const isClosed =
+        Boolean(lead.contactadoResultado) &&
+        (!campaign || !lead.contactadoCampaignId || lead.contactadoCampaignId === campaign.id);
+      const isArchived =
+        isClosed &&
+        Boolean(lead.campaignChatArchivedAt) &&
+        (!campaign || !lead.campaignChatClosedCampaignId || lead.campaignChatClosedCampaignId === campaign.id);
       const leadQueue = campaignQueue
         .filter((item) => item.leadId === lead.id)
         .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
@@ -1243,9 +1250,11 @@ function CampaignsScreen({
                 : blockedReason
                   ? "bloqueado"
                   : "sin_preparar";
-      return { lead, queue: leadQueue, messages: leadMessages, latestSent, pending, lastInbound, lastOutbound, blockedReason, failed, status };
+      return { lead, queue: leadQueue, messages: leadMessages, latestSent, pending, lastInbound, lastOutbound, blockedReason, failed, status, isClosed, isArchived };
     })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const conversations = allConversations
+    .filter((item) => !item.isClosed && !item.isArchived)
     .sort((a, b) => {
       const rank: Record<string, number> = {
         chat_abierto: 0,
@@ -1260,7 +1269,15 @@ function CampaignsScreen({
       };
       return rank[a.status] - rank[b.status] || a.lead.nombreNegocio.localeCompare(b.lead.nombreNegocio);
     });
-  const activeQueue = campaignQueue.filter((item) => item.status === "pending" || item.status === "processing");
+  const closedConversations = allConversations
+    .filter((item) => item.isClosed && !item.isArchived)
+    .sort((a, b) => (b.lead.campaignChatClosedAt ?? b.lead.contactadoAt ?? "").localeCompare(a.lead.campaignChatClosedAt ?? a.lead.contactadoAt ?? ""));
+  const inactiveConversationLeadIds = new Set(
+    allConversations.filter((item) => item.isClosed || item.isArchived).map((item) => item.lead.id)
+  );
+  const activeQueue = campaignQueue.filter(
+    (item) => (item.status === "pending" || item.status === "processing") && !inactiveConversationLeadIds.has(item.leadId)
+  );
   const sortedActiveQueue = [...activeQueue].sort((a, b) => {
     const rank = { processing: 0, pending: 1, sent: 2, failed: 3, cancelled: 4 } as const;
     return rank[a.status] - rank[b.status] || a.scheduledAt.localeCompare(b.scheduledAt);
@@ -1516,11 +1533,67 @@ function CampaignsScreen({
       contactadoAt: now,
       contactadoCampaignId: campaign?.id,
       contactadoBy: state.currentUser.uid,
+      campaignChatClosedAt: now,
+      campaignChatClosedCampaignId: campaign?.id,
+      campaignChatArchivedAt: undefined,
+      campaignChatArchivedBy: undefined,
       comercialAsignado: lead.comercialAsignado || state.currentUser.uid,
       proximaAccion: outcome === "no_interesa" ? "No contactar salvo nueva solicitud" : "Comercial debe contactar",
       updatedAt: now
     };
     onLeadSave(nextLead);
+    setSelectedChatId("");
+  }
+
+  function archiveCampaignChat(leadId: string) {
+    const now = new Date().toISOString();
+    updateState(
+      {
+        ...state,
+        leads: state.leads.map((lead) =>
+          lead.id === leadId
+            ? {
+                ...lead,
+                campaignChatClosedAt: lead.campaignChatClosedAt ?? lead.contactadoAt ?? now,
+                campaignChatClosedCampaignId: lead.campaignChatClosedCampaignId ?? campaign?.id,
+                campaignChatArchivedAt: now,
+                campaignChatArchivedBy: state.currentUser.uid,
+                updatedAt: now
+              }
+            : lead
+        )
+      },
+      "Chat terminado eliminado de la vista de campana."
+    );
+    if (selectedChatId === leadId) setSelectedChatId("");
+  }
+
+  function archiveAllClosedCampaignChats() {
+    if (closedConversations.length === 0) {
+      updateState(state, "No hay chats terminados para limpiar.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const closedIds = new Set(closedConversations.map((conversation) => conversation.lead.id));
+    updateState(
+      {
+        ...state,
+        leads: state.leads.map((lead) =>
+          closedIds.has(lead.id)
+            ? {
+                ...lead,
+                campaignChatClosedAt: lead.campaignChatClosedAt ?? lead.contactadoAt ?? now,
+                campaignChatClosedCampaignId: lead.campaignChatClosedCampaignId ?? campaign?.id,
+                campaignChatArchivedAt: now,
+                campaignChatArchivedBy: state.currentUser.uid,
+                updatedAt: now
+              }
+            : lead
+        )
+      },
+      `${closedConversations.length} chat(s) terminados eliminados de la vista de campana.`
+    );
+    if (selectedChatId && closedIds.has(selectedChatId)) setSelectedChatId("");
   }
 
   return (
@@ -1604,13 +1677,21 @@ function CampaignsScreen({
                 <h3 className="text-lg font-bold text-slate-950">Chats de la campana</h3>
                 <p className="text-sm text-slate-500">Trabaja cada lead como una conversacion y avanza al siguiente sin perder contexto.</p>
               </div>
-              <Button variant="secondary" icon={<ExternalLink size={18} />} onClick={openNextQueueItem}>Abrir siguiente</Button>
+              <div className="flex flex-wrap gap-2">
+                {closedConversations.length > 0 && (
+                  <Button variant="secondary" icon={<Trash2 size={18} />} onClick={archiveAllClosedCampaignChats}>
+                    Limpiar cerrados
+                  </Button>
+                )}
+                <Button variant="secondary" icon={<ExternalLink size={18} />} onClick={openNextQueueItem}>Abrir siguiente</Button>
+              </div>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 text-center text-xs xl:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-2 text-center text-xs xl:grid-cols-5">
               <div className="rounded-md bg-slate-50 p-2"><strong className="block text-base text-slate-950">{activeQueue.filter((item) => item.status === "pending").length}</strong>Pendientes</div>
               <div className="rounded-md bg-blue-50 p-2"><strong className="block text-base text-blue-900">{activeQueue.filter((item) => item.status === "processing").length}</strong>Abiertos</div>
               <div className="rounded-md bg-amber-50 p-2"><strong className="block text-base text-amber-900">{waitingCount}</strong>Esperando</div>
               <div className="rounded-md bg-emerald-50 p-2"><strong className="block text-base text-emerald-900">{respondedCount}</strong>Respondidos</div>
+              <div className="rounded-md bg-slate-100 p-2"><strong className="block text-base text-slate-900">{closedConversations.length}</strong>Cerrados</div>
             </div>
             {blockedCount > 0 && (
               <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
@@ -1665,6 +1746,38 @@ function CampaignsScreen({
                 })}
                 {conversations.length === 0 && <p className="p-4 text-sm text-slate-500">Todavia no hay leads dentro de esta campana.</p>}
               </div>
+              {closedConversations.length > 0 && (
+                <div className="border-t border-slate-200 bg-white">
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+                    <p className="text-xs font-bold uppercase text-slate-500">Terminados</p>
+                    <button
+                      type="button"
+                      className="text-xs font-bold text-connessia-700 hover:text-connessia-900"
+                      onClick={archiveAllClosedCampaignChats}
+                    >
+                      Limpiar
+                    </button>
+                  </div>
+                  <div className="max-h-44 overflow-y-auto">
+                    {closedConversations.map((conversation) => (
+                      <div key={conversation.lead.id} className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 text-sm">
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
+                          <p className="truncate text-xs text-slate-500">{contactedOutcomeLabels[conversation.lead.contactadoResultado ?? "interesado_comercial"]}</p>
+                        </div>
+                        <button
+                          type="button"
+                          title="Eliminar chat terminado de esta vista"
+                          className="rounded-md border border-slate-200 p-2 text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                          onClick={() => archiveCampaignChat(conversation.lead.id)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex min-h-[560px] flex-col bg-[#efe7dc]">
               {selectedConversation ? (
@@ -1745,7 +1858,7 @@ function CampaignsScreen({
                             Dudoso, paso a comercial
                           </Button>
                           <Button variant="danger" onClick={() => classifyCompletedLead(selectedConversation.lead, "no_interesa")}>
-                            No interesa
+                            Baja / no interesa
                           </Button>
                           <Button onClick={() => classifyCompletedLead(selectedConversation.lead, "interesado_comercial")}>
                             Interesado, paso a comercial

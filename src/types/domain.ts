@@ -93,6 +93,10 @@ export interface Lead {
   contactadoCerradoAt?: string;
   contactadoCerradoBy?: string;
   contactadoCierreNotas?: string;
+  campaignChatClosedAt?: string;
+  campaignChatClosedCampaignId?: string;
+  campaignChatArchivedAt?: string;
+  campaignChatArchivedBy?: string;
   createdAt: string;
   updatedAt: string;
 }
