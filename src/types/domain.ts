@@ -47,6 +47,7 @@ export type TaskStatus = "pendiente" | "hecha" | "cancelada";
 export type DemoStatus = "programada" | "realizada" | "cancelada";
 export type AssetType = "imagen" | "pdf" | "video";
 export type ContactedLeadOutcome = "dudoso_comercial" | "no_interesa" | "interesado_comercial";
+export type ContactedLeadCloseStatus = "terminado" | "baja";
 
 export interface AppUser {
   uid: string;
@@ -88,6 +89,10 @@ export interface Lead {
   contactadoAt?: string;
   contactadoCampaignId?: string;
   contactadoBy?: string;
+  contactadoCierre?: ContactedLeadCloseStatus;
+  contactadoCerradoAt?: string;
+  contactadoCerradoBy?: string;
+  contactadoCierreNotas?: string;
   createdAt: string;
   updatedAt: string;
 }

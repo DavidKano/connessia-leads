@@ -44,6 +44,41 @@ const masivoKeywords = [
   'Abogados', 'Gestoría', 'Psicología'
 ];
 
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w]+/g, " ")
+    .trim();
+}
+
+function normalizePhoneValue(value: string) {
+  return value.replace(/[^\d+]/g, "");
+}
+
+function sameFinderLead(a: FinderLead, b: FinderLead) {
+  const phoneA = normalizePhoneValue(a.telefono);
+  const phoneB = normalizePhoneValue(b.telefono);
+  if (phoneA && phoneB && phoneA === phoneB) return true;
+  if (a.web && b.web && a.web.toLowerCase() === b.web.toLowerCase()) return true;
+  return normalizeText(a.nombre) === normalizeText(b.nombre) && normalizeText(a.direccion) === normalizeText(b.direccion);
+}
+
+function isKnownLead(finderLead: FinderLead, existingLeads: Lead[]) {
+  const phone = normalizePhoneValue(finderLead.telefono);
+  const web = finderLead.web.toLowerCase();
+  const name = normalizeText(finderLead.nombre);
+  const address = normalizeText(finderLead.direccion);
+
+  return existingLeads.some((lead) => {
+    const existingPhone = normalizePhoneValue(lead.telefono);
+    if (phone && existingPhone && phone === existingPhone) return true;
+    if (web && lead.web.toLowerCase() === web) return true;
+    return normalizeText(lead.nombreNegocio) === name && normalizeText(lead.direccion) === address;
+  });
+}
+
 export function LeadFinderScreen() {
   const [apiKey, setApiKey] = useState("");
   const [apiLimit, setApiLimit] = useState(parseInt(localStorage.getItem('gmaps_api_limit') || '3000', 10));
@@ -247,8 +282,10 @@ export function LeadFinderScreen() {
       web: place.website || '',
       tipo: tipo || ''
     };
+
+    if (isKnownLead(newLead, store.state.leads)) return;
     
-    setLeads(prev => [...prev, newLead]);
+    setLeads(prev => prev.some((item) => sameFinderLead(item, newLead)) ? prev : [...prev, newLead]);
   };
 
   const toggleSelect = (id: string) => {
@@ -264,7 +301,9 @@ export function LeadFinderScreen() {
     if (selectedIds.length === 0) return;
     
     const selectedLeads = leads.filter(l => selectedIds.includes(l.id));
+    let transferred = 0;
     selectedLeads.forEach(fLead => {
+      if (isKnownLead(fLead, store.state.leads)) return;
       const lead: Lead = {
         id: crypto.randomUUID(),
         nombreNegocio: fLead.nombre,
@@ -287,9 +326,10 @@ export function LeadFinderScreen() {
         updatedAt: new Date().toISOString()
       };
       store.upsertLead(lead);
+      transferred += 1;
     });
 
-    store.setToast(`${selectedIds.length} leads traspasados correctamente.`);
+    store.setToast(`${transferred} leads traspasados correctamente. ${selectedIds.length - transferred} ya existian y se omitieron.`);
     setLeads(prev => prev.filter(l => !selectedIds.includes(l.id)));
     setSelectedIds([]);
   };

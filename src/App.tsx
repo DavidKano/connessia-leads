@@ -35,7 +35,7 @@ import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
-import type { AppUser, Campaign, CommercialAsset, ContactedLeadOutcome, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
+import type { AppUser, Campaign, CommercialAsset, ContactedLeadCloseStatus, ContactedLeadOutcome, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
 import { formatDate, formatDateTime, normalizePhone, percent, renderTemplate } from "./utils/formatters";
 import { onAuthStateChanged, signInWithEmailAndPassword, type User as FirebaseUser } from "firebase/auth";
 import { auth, firebaseConfigured } from "./services/firebase";
@@ -220,7 +220,15 @@ export default function App() {
     return <AuthScreen />;
   }
 
-  const visibleLeads = state.leads;
+  const campaignTouchedLeadIds = new Set([
+    ...state.queue.map((item) => item.leadId),
+    ...state.messages
+      .filter((message) => message.direction === "outbound")
+      .map((message) => message.leadId)
+  ]);
+  const visibleLeads = state.leads.filter(
+    (lead) => !lead.contactadoResultado && !lead.contactadoCerradoAt && !campaignTouchedLeadIds.has(lead.id)
+  );
 
   const selectedLead = selectedLeadId ? state.leads.find((lead) => lead.id === selectedLeadId) : null;
 
@@ -251,6 +259,12 @@ export default function App() {
                 state={state}
                 onSelect={setSelectedLeadId}
                 onSave={store.upsertLead}
+              />
+            )}
+            {page === "terminados" && (
+              <FinishedLeadsScreen
+                state={state}
+                onSelect={setSelectedLeadId}
               />
             )}
             {page === "importar" && <ImportScreen leads={state.leads} onImport={store.importLeads} />}
@@ -1150,6 +1164,11 @@ const contactedOutcomeLabels: Record<ContactedLeadOutcome, string> = {
   interesado_comercial: "Interesado - paso a comercial"
 };
 
+const contactedCloseLabels: Record<ContactedLeadCloseStatus, string> = {
+  terminado: "Terminado",
+  baja: "Baja"
+};
+
 function contactedLeadStatus(outcome: ContactedLeadOutcome): Lead["estado"] {
   if (outcome === "no_interesa") return "no_interesado";
   return "interesado";
@@ -1889,8 +1908,24 @@ function ContactedLeadsScreen({
 }) {
   const outcomes: ContactedLeadOutcome[] = ["interesado_comercial", "dudoso_comercial", "no_interesa"];
   const contactedLeads = state.leads
-    .filter((lead) => lead.contactadoResultado)
+    .filter((lead) => lead.contactadoResultado && !lead.contactadoCerradoAt)
     .sort((a, b) => (b.contactadoAt ?? "").localeCompare(a.contactadoAt ?? ""));
+
+  function closeLead(lead: Lead, closeStatus: ContactedLeadCloseStatus) {
+    const now = new Date().toISOString();
+    onSave({
+      ...lead,
+      estado: closeStatus === "baja" ? "baja" : lead.estado,
+      fechaBaja: closeStatus === "baja" ? now : lead.fechaBaja,
+      motivoBaja: closeStatus === "baja" ? "Cerrado como baja por comercial" : lead.motivoBaja,
+      contactadoCierre: closeStatus,
+      contactadoCerradoAt: now,
+      contactadoCerradoBy: state.currentUser.uid,
+      contactadoCierreNotas: closeStatus === "baja" ? "No volver a contactar" : "Gestionado por comercial",
+      proximaAccion: closeStatus === "baja" ? "No contactar" : "Gestion terminado",
+      updatedAt: now
+    });
+  }
 
   function sectionTone(outcome: ContactedLeadOutcome) {
     if (outcome === "interesado_comercial") return "border-emerald-200 bg-emerald-50";
@@ -1954,6 +1989,12 @@ function ContactedLeadsScreen({
                             Demo agendada
                           </Button>
                         )}
+                        <Button onClick={() => closeLead(lead, "terminado")}>
+                          Terminado
+                        </Button>
+                        <Button variant="danger" onClick={() => closeLead(lead, "baja")}>
+                          Baja
+                        </Button>
                       </div>
                     </div>
                   );
@@ -1964,6 +2005,90 @@ function ContactedLeadsScreen({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function FinishedLeadsScreen({
+  state,
+  onSelect
+}: {
+  state: ReturnType<typeof useCrmStore>["state"];
+  onSelect: (id: string) => void;
+}) {
+  const finishedLeads = state.leads
+    .filter((lead) => lead.contactadoCerradoAt)
+    .sort((a, b) => (b.contactadoCerradoAt ?? "").localeCompare(a.contactadoCerradoAt ?? ""));
+  const closeStatuses: ContactedLeadCloseStatus[] = ["terminado", "baja"];
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader
+        title="Leads terminados"
+        subtitle="Archivo compartido de leads ya gestionados para no volver a repetirlos en futuras busquedas."
+      />
+      <div className="grid gap-4 md:grid-cols-2">
+        {closeStatuses.map((status) => (
+          <StatCard
+            key={status}
+            label={contactedCloseLabels[status]}
+            value={finishedLeads.filter((lead) => lead.contactadoCierre === status).length}
+            icon={<Users size={20} />}
+            tone={status === "baja" ? "coral" : "blue"}
+          />
+        ))}
+      </div>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto table-scroll">
+          <table className="w-full min-w-[920px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Negocio</th>
+                <th>Resultado campana</th>
+                <th>Cierre</th>
+                <th>Telefono</th>
+                <th>Sector</th>
+                <th>Campana</th>
+                <th>Fecha cierre</th>
+                <th>Accion</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {finishedLeads.map((lead) => {
+                const campaign = state.campaigns.find((item) => item.id === lead.contactadoCampaignId);
+                return (
+                  <tr key={lead.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      <button className="font-bold text-connessia-800" onClick={() => onSelect(lead.id)}>
+                        {lead.nombreNegocio}
+                      </button>
+                      <p className="text-xs text-slate-500">{lead.personaContacto || "Sin contacto"}</p>
+                    </td>
+                    <td><Badge value={lead.contactadoResultado ?? "sin resultado"} /></td>
+                    <td><Badge value={lead.contactadoCierre ?? "terminado"} /></td>
+                    <td>{lead.telefono}</td>
+                    <td>{lead.sector || "Sin sector"}</td>
+                    <td>{campaign?.nombre ?? "Sin campana"}</td>
+                    <td>{formatDateTime(lead.contactadoCerradoAt)}</td>
+                    <td>
+                      <Button variant="secondary" onClick={() => onSelect(lead.id)}>
+                        Abrir ficha
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {finishedLeads.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-500">
+                    Todavia no hay leads terminados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }

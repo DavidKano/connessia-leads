@@ -24,6 +24,7 @@ export const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "leads", label: "Leads", icon: Users },
   { id: "contactados", label: "Leads contactados", icon: UserCheck },
+  { id: "terminados", label: "Leads terminados", icon: ArchiveX },
   { id: "importar", label: "Importar", icon: Import },
   { id: "campanas", label: "Campañas", icon: MessageSquareText },
   { id: "plantillas", label: "Plantillas", icon: FileText },
