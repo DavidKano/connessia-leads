@@ -1195,18 +1195,7 @@ function CampaignsScreen({
   const allChecked = complianceItems.every((item) => checks.includes(item));
   const campaignQueue = campaign ? state.queue.filter((item) => item.campaignId === campaign.id) : [];
   const campaignMessages = campaign ? state.messages.filter((message) => message.campaignId === campaign.id) : [];
-  const selectedCampaignLeads = campaign
-    ? state.leads.filter((lead) => {
-        const selectedByGroup =
-          campaign.segmento.grupoIds.length > 0 &&
-          campaign.segmento.grupoIds.some((groupId) => lead.grupoIds.includes(groupId));
-        const zoneMatch = campaign.segmento.zonas.length === 0 || campaign.segmento.zonas.includes(lead.zona);
-        const sectorMatch = campaign.segmento.sectores.length === 0 || campaign.segmento.sectores.includes(lead.sector);
-        return selectedByGroup || (campaign.segmento.grupoIds.length === 0 && zoneMatch && sectorMatch);
-      })
-    : [];
   const conversationLeadIds = Array.from(new Set([
-    ...selectedCampaignLeads.map((lead) => lead.id),
     ...campaignQueue.map((item) => item.leadId),
     ...campaignMessages.map((message) => message.leadId)
   ]));
@@ -1869,6 +1858,19 @@ function CampaignsScreen({
                         <span className="inline-flex min-h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
                           Respuesta registrada.
                         </span>
+                      )}
+                      {selectedConversation.lastInbound && selectedConversation.status !== "respondio_si" && !selectedConversation.pending && (
+                        <>
+                          <Button variant="secondary" onClick={() => classifyCompletedLead(selectedConversation.lead, "dudoso_comercial")}>
+                            Cerrar como dudoso
+                          </Button>
+                          <Button onClick={() => classifyCompletedLead(selectedConversation.lead, "interesado_comercial")}>
+                            Cerrar como interesado
+                          </Button>
+                          <Button variant="danger" onClick={() => classifyCompletedLead(selectedConversation.lead, "no_interesa")}>
+                            Baja / no interesa
+                          </Button>
+                        </>
                       )}
                       {!selectedConversation.pending && !selectedConversation.lastInbound && selectedConversation.blockedReason && (
                         <span className="inline-flex min-h-10 items-center rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950">
