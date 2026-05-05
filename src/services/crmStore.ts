@@ -95,41 +95,20 @@ const initialState: CrmState = {
   settings: demoSettings
 };
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return initialState;
-    const parsed = JSON.parse(raw) as Partial<CrmState>;
-    return {
-      ...initialState,
-      ...parsed,
-      currentUser: parsed.currentUser ?? initialState.currentUser,
-      users: parsed.users ?? initialState.users,
-      leads: (parsed.leads ?? initialState.leads).map((lead) => ({ ...lead, grupoIds: lead.grupoIds ?? [] })),
-      campaigns: (parsed.campaigns ?? initialState.campaigns).map((campaign) => ({
-        ...campaign,
-        mensajesPostSi: campaign.mensajesPostSi ?? [{ step: 3 }, { step: 4 }],
-        segmento: {
-          ...campaign.segmento,
-          grupoIds: campaign.segmento.grupoIds ?? []
-        }
-      })),
-      settings: {
-        ...initialState.settings,
-        ...(parsed.settings ?? {}),
-        whatsappChannel: {
-          ...initialState.settings.whatsappChannel,
-          ...(parsed.settings?.whatsappChannel ?? {})
-        },
-        firebaseConfig: {
-          ...initialState.settings.firebaseConfig,
-          ...(parsed.settings?.firebaseConfig ?? {})
-        }
-      }
-    };
-  } catch {
-    return initialState;
-  }
+function loadState(): CrmState {
+  return {
+    ...initialState,
+    leads: [],
+    leadGroups: [],
+    templates: [],
+    campaigns: [],
+    messages: [],
+    queue: [],
+    doNotContact: [],
+    tasks: [],
+    demos: [],
+    assets: []
+  };
 }
 
 export function useCrmStore() {
@@ -166,16 +145,16 @@ export function useCrmStore() {
 
         setState((current) => ({
           ...current,
-          leads: remoteLeads.length > 0 ? remoteLeads.map(l => ({ ...l, grupoIds: l.grupoIds ?? [] })) : current.leads,
-          leadGroups: remoteGroups.length > 0 ? remoteGroups : current.leadGroups,
-          templates: remoteTemplates.length > 0 ? remoteTemplates : current.templates,
-          campaigns: remoteCampaigns.length > 0 ? remoteCampaigns.map(c => ({ ...c, mensajesPostSi: c.mensajesPostSi ?? [{ step: 3 }, { step: 4 }], segmento: { ...c.segmento, grupoIds: c.segmento.grupoIds ?? [] } })) : current.campaigns,
-          assets: remoteAssets.length > 0 ? remoteAssets : current.assets,
-          tasks: remoteTasks.length > 0 ? remoteTasks : current.tasks,
-          demos: remoteDemos.length > 0 ? remoteDemos : current.demos,
-          doNotContact: remoteDNC.length > 0 ? remoteDNC : current.doNotContact,
+          leads: remoteLeads.map(l => ({ ...l, grupoIds: l.grupoIds ?? [] })),
+          leadGroups: remoteGroups,
+          templates: remoteTemplates,
+          campaigns: remoteCampaigns.map(c => ({ ...c, mensajesPostSi: c.mensajesPostSi ?? [{ step: 3 }, { step: 4 }], segmento: { ...c.segmento, grupoIds: c.segmento.grupoIds ?? [] } })),
+          assets: remoteAssets,
+          tasks: remoteTasks,
+          demos: remoteDemos,
+          doNotContact: remoteDNC,
           settings: remoteSettings || current.settings,
-          messages: remoteMessages.length > 0 ? remoteMessages : current.messages
+          messages: remoteMessages
         }));
         
         setToast("Datos sincronizados con Firestore.");
@@ -190,7 +169,6 @@ export function useCrmStore() {
 
   function updateState(next: CrmState, notice?: string) {
     setState(next);
-    localStorage.setItem(storageKey, JSON.stringify(next));
     if (notice) setToast(notice);
   }
 
