@@ -33,7 +33,10 @@ const statusColors: Record<string, string> = {
   sent: "bg-emerald-100 text-emerald-800",
   failed: "bg-red-100 text-red-800",
   cancelled: "bg-slate-200 text-slate-700",
-  received: "bg-connessia-100 text-connessia-800"
+  received: "bg-connessia-100 text-connessia-800",
+  dudoso_comercial: "bg-amber-100 text-amber-800",
+  no_interesa: "bg-red-100 text-red-800",
+  interesado_comercial: "bg-emerald-100 text-emerald-800"
 };
 
 export function Badge({ value }: { value: LeadStatus | TemplateStatus | string }) {

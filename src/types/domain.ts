@@ -46,6 +46,7 @@ export type Direction = "inbound" | "outbound";
 export type TaskStatus = "pendiente" | "hecha" | "cancelada";
 export type DemoStatus = "programada" | "realizada" | "cancelada";
 export type AssetType = "imagen" | "pdf" | "video";
+export type ContactedLeadOutcome = "dudoso_comercial" | "no_interesa" | "interesado_comercial";
 
 export interface AppUser {
   uid: string;
@@ -83,6 +84,10 @@ export interface Lead {
   motivoBaja?: string;
   ultimoContacto?: string;
   proximaAccion?: string;
+  contactadoResultado?: ContactedLeadOutcome;
+  contactadoAt?: string;
+  contactadoCampaignId?: string;
+  contactadoBy?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -35,7 +35,7 @@ import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
-import type { AppUser, Campaign, CommercialAsset, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
+import type { AppUser, Campaign, CommercialAsset, ContactedLeadOutcome, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
 import { formatDate, formatDateTime, normalizePhone, percent, renderTemplate } from "./utils/formatters";
 import { onAuthStateChanged, signInWithEmailAndPassword, type User as FirebaseUser } from "firebase/auth";
 import { auth, firebaseConfigured } from "./services/firebase";
@@ -246,11 +246,19 @@ export default function App() {
                 onDeleteGroup={store.deleteLeadGroup}
               />
             )}
+            {page === "contactados" && (
+              <ContactedLeadsScreen
+                state={state}
+                onSelect={setSelectedLeadId}
+                onSave={store.upsertLead}
+              />
+            )}
             {page === "importar" && <ImportScreen leads={state.leads} onImport={store.importLeads} />}
             {page === "campanas" && (
               <CampaignsScreen
                 state={state}
                 updateState={store.updateState}
+                onLeadSave={store.upsertLead}
                 onCampaignUpdate={store.updateCampaign}
                 onCampaignDelete={store.deleteCampaign}
               />
@@ -1136,14 +1144,27 @@ function nextCampaignStepNumber(campaign: Campaign | undefined, queue: QueueItem
   return campaignConfiguredSteps(campaign).find((step) => !sentSteps.has(step));
 }
 
+const contactedOutcomeLabels: Record<ContactedLeadOutcome, string> = {
+  dudoso_comercial: "Dudoso - paso a comercial",
+  no_interesa: "No interesa",
+  interesado_comercial: "Interesado - paso a comercial"
+};
+
+function contactedLeadStatus(outcome: ContactedLeadOutcome): Lead["estado"] {
+  if (outcome === "no_interesa") return "no_interesado";
+  return "interesado";
+}
+
 function CampaignsScreen({
   state,
   updateState,
+  onLeadSave,
   onCampaignUpdate,
   onCampaignDelete
 }: {
   state: ReturnType<typeof useCrmStore>["state"];
   updateState: ReturnType<typeof useCrmStore>["updateState"];
+  onLeadSave: (lead: Lead) => void;
   onCampaignUpdate: (campaign: Campaign) => void;
   onCampaignDelete: (id: string) => void;
 }) {
@@ -1467,6 +1488,22 @@ function CampaignsScreen({
     );
   }
 
+  function classifyCompletedLead(lead: Lead, outcome: ContactedLeadOutcome) {
+    const now = new Date().toISOString();
+    const nextLead: Lead = {
+      ...lead,
+      estado: contactedLeadStatus(outcome),
+      contactadoResultado: outcome,
+      contactadoAt: now,
+      contactadoCampaignId: campaign?.id,
+      contactadoBy: state.currentUser.uid,
+      comercialAsignado: lead.comercialAsignado || state.currentUser.uid,
+      proximaAccion: outcome === "no_interesa" ? "No contactar salvo nueva solicitud" : "Comercial debe contactar",
+      updatedAt: now
+    };
+    onLeadSave(nextLead);
+  }
+
   return (
     <div className="space-y-5">
       <ScreenHeader title="Campañas" subtitle="Constructor sencillo con checklist legal, segmentación y cola de envíos." />
@@ -1683,6 +1720,19 @@ function CampaignsScreen({
                           Secuencia de campaña completada.
                         </span>
                       )}
+                      {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && !selectedNextCampaignStep && (
+                        <>
+                          <Button variant="secondary" onClick={() => classifyCompletedLead(selectedConversation.lead, "dudoso_comercial")}>
+                            Dudoso, paso a comercial
+                          </Button>
+                          <Button variant="danger" onClick={() => classifyCompletedLead(selectedConversation.lead, "no_interesa")}>
+                            No interesa
+                          </Button>
+                          <Button onClick={() => classifyCompletedLead(selectedConversation.lead, "interesado_comercial")}>
+                            Interesado, paso a comercial
+                          </Button>
+                        </>
+                      )}
                       {selectedConversation.lastInbound && selectedConversation.status !== "respondio_si" && (
                         <span className="inline-flex min-h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
                           Respuesta registrada.
@@ -1824,6 +1874,96 @@ function CampaignsScreen({
           onSave={saveCampaign}
         />
       )}
+    </div>
+  );
+}
+
+function ContactedLeadsScreen({
+  state,
+  onSelect,
+  onSave
+}: {
+  state: ReturnType<typeof useCrmStore>["state"];
+  onSelect: (id: string) => void;
+  onSave: (lead: Lead) => void;
+}) {
+  const outcomes: ContactedLeadOutcome[] = ["interesado_comercial", "dudoso_comercial", "no_interesa"];
+  const contactedLeads = state.leads
+    .filter((lead) => lead.contactadoResultado)
+    .sort((a, b) => (b.contactadoAt ?? "").localeCompare(a.contactadoAt ?? ""));
+
+  function sectionTone(outcome: ContactedLeadOutcome) {
+    if (outcome === "interesado_comercial") return "border-emerald-200 bg-emerald-50";
+    if (outcome === "dudoso_comercial") return "border-amber-200 bg-amber-50";
+    return "border-red-200 bg-red-50";
+  }
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader
+        title="Leads contactados"
+        subtitle="Bandeja compartida para que admin y comerciales trabajen los cierres de campana."
+      />
+      <div className="grid gap-4 md:grid-cols-3">
+        {outcomes.map((outcome) => (
+          <StatCard
+            key={outcome}
+            label={contactedOutcomeLabels[outcome]}
+            value={contactedLeads.filter((lead) => lead.contactadoResultado === outcome).length}
+            icon={<Users size={20} />}
+            tone={outcome === "no_interesa" ? "coral" : outcome === "dudoso_comercial" ? "slate" : "blue"}
+          />
+        ))}
+      </div>
+      <div className="grid gap-4 xl:grid-cols-3">
+        {outcomes.map((outcome) => {
+          const leads = contactedLeads.filter((lead) => lead.contactadoResultado === outcome);
+          return (
+            <Card key={outcome} className="overflow-hidden">
+              <div className={`border-b p-4 ${sectionTone(outcome)}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-bold text-slate-950">{contactedOutcomeLabels[outcome]}</h3>
+                  <Badge value={outcome} />
+                </div>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {leads.map((lead) => {
+                  const campaign = state.campaigns.find((item) => item.id === lead.contactadoCampaignId);
+                  const assigned = state.users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? lead.comercialAsignado;
+                  return (
+                    <div key={lead.id} className="p-4 text-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <button className="font-bold text-connessia-800" onClick={() => onSelect(lead.id)}>
+                            {lead.nombreNegocio}
+                          </button>
+                          <p className="text-xs text-slate-500">{lead.personaContacto || "Sin contacto"} · {lead.telefono}</p>
+                        </div>
+                        <Badge value={lead.estado} />
+                      </div>
+                      <div className="mt-3 grid gap-2 text-xs text-slate-600">
+                        <p><strong>Comercial:</strong> {assigned}</p>
+                        <p><strong>Campana:</strong> {campaign?.nombre ?? "Sin campana"}</p>
+                        <p><strong>Clasificado:</strong> {formatDateTime(lead.contactadoAt)}</p>
+                        <p><strong>Proxima accion:</strong> {lead.proximaAccion ?? "Contactar lead"}</p>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button variant="secondary" onClick={() => onSelect(lead.id)}>Abrir ficha</Button>
+                        {outcome !== "no_interesa" && (
+                          <Button onClick={() => onSave({ ...lead, estado: "demo_agendada", proximaAccion: "Demo agendada", updatedAt: new Date().toISOString() })}>
+                            Demo agendada
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {leads.length === 0 && <p className="p-4 text-sm text-slate-500">Sin leads en esta bandeja.</p>}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
   Settings,
   ShieldCheck,
   Search,
+  UserCheck,
   Users
 } from "lucide-react";
 import { clsx } from "clsx";
@@ -22,6 +23,7 @@ import { clsx } from "clsx";
 export const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "leads", label: "Leads", icon: Users },
+  { id: "contactados", label: "Leads contactados", icon: UserCheck },
   { id: "importar", label: "Importar", icon: Import },
   { id: "campanas", label: "Campañas", icon: MessageSquareText },
   { id: "plantillas", label: "Plantillas", icon: FileText },
