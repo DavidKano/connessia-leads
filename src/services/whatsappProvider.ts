@@ -83,9 +83,23 @@ export function buildWhatsAppWebUrl(phone: string, body: string) {
   return `https://web.whatsapp.com/send?phone=${normalizedPhone}&text=${message}`;
 }
 
+let waWindow: Window | null = null;
+
 export function openWhatsAppWebComposer(phone: string, body: string) {
   const url = buildWhatsAppWebUrl(phone, body);
-  window.open(url, "_blank", "noopener,noreferrer");
+  
+  try {
+    if (waWindow && !waWindow.closed) {
+      waWindow.location.href = url;
+      waWindow.focus();
+      return url;
+    }
+  } catch (error) {
+    // Cross-origin restrictions might throw an error when accessing waWindow.location
+    console.warn("No se pudo reutilizar la pestaña debido a políticas de seguridad del navegador (COOP). Abriendo nueva.", error);
+  }
+
+  waWindow = window.open(url, "whatsapp_web_composer");
   return url;
 }
 
