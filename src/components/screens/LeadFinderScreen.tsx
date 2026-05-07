@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   Search, 
   Download, 
@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Loader2,
   ArrowRightLeft,
+  ArrowUpDown,
   CheckSquare,
   Square
 } from "lucide-react";
@@ -95,6 +96,7 @@ export function LeadFinderScreen() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showConfig, setShowConfig] = useState(false);
   const [configDraft, setConfigDraft] = useState({ key: "", limit: apiLimit });
+  const [phoneSortDir, setPhoneSortDir] = useState<"asc" | "desc" | null>(null);
 
   const store = useCrmStore();
 
@@ -301,14 +303,15 @@ export function LeadFinderScreen() {
     if (selectedIds.length === 0) return;
     
     const selectedLeads = leads.filter(l => selectedIds.includes(l.id));
-    let transferred = 0;
+    const leadsToImport: Lead[] = [];
+    
     selectedLeads.forEach(fLead => {
       if (isKnownLead(fLead, store.state.leads)) return;
       const lead: Lead = {
         id: crypto.randomUUID(),
         nombreNegocio: fLead.nombre,
         personaContacto: "",
-        telefono: fLead.telefono,
+        telefono: normalizePhoneValue(fLead.telefono),
         email: "",
         direccion: fLead.direccion,
         ciudad: fLead.localidad,
@@ -325,11 +328,14 @@ export function LeadFinderScreen() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
-      store.upsertLead(lead);
-      transferred += 1;
+      leadsToImport.push(lead);
     });
 
-    store.setToast(`${transferred} leads traspasados correctamente. ${selectedIds.length - transferred} ya existian y se omitieron.`);
+    if (leadsToImport.length > 0) {
+      store.importLeads(leadsToImport);
+    }
+
+    store.setToast(`${leadsToImport.length} leads traspasados correctamente. ${selectedIds.length - leadsToImport.length} ya existian y se omitieron.`);
     setLeads(prev => prev.filter(l => !selectedIds.includes(l.id)));
     setSelectedIds([]);
   };
@@ -376,6 +382,17 @@ export function LeadFinderScreen() {
 
 
   const limitPercentage = apiLimit > 0 ? (usageCount / apiLimit) * 100 : 0;
+
+  const sortedLeads = useMemo(() => {
+    if (!phoneSortDir) return leads;
+    return [...leads].sort((a, b) => {
+      const phoneA = a.telefono || "";
+      const phoneB = b.telefono || "";
+      return phoneSortDir === "asc" 
+        ? phoneA.localeCompare(phoneB) 
+        : phoneB.localeCompare(phoneA);
+    });
+  }, [leads, phoneSortDir]);
 
   return (
     <div className="space-y-6">
@@ -509,12 +526,20 @@ export function LeadFinderScreen() {
                     <th>Negocio</th>
                     <th>Dirección</th>
                     <th>Código Postal</th>
-                    <th>Teléfono</th>
+                    <th>
+                      <button 
+                        onClick={() => setPhoneSortDir(prev => prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc')}
+                        className="flex items-center gap-1 hover:text-connessia-600 transition-colors uppercase font-bold"
+                      >
+                        Teléfono
+                        <ArrowUpDown size={14} className={phoneSortDir ? 'text-connessia-600' : 'text-slate-400'} />
+                      </button>
+                    </th>
                     <th>Web</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                   {leads.map((lead) => (
+                   {sortedLeads.map((lead) => (
                     <tr key={lead.id} className={`hover:bg-slate-50 ${selectedIds.includes(lead.id) ? 'bg-connessia-50/50' : ''}`}>
                       <td className="px-4 py-3">
                         <button onClick={() => toggleSelect(lead.id)} className={selectedIds.includes(lead.id) ? 'text-connessia-600' : 'text-slate-300'}>
