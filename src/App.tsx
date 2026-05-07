@@ -1588,7 +1588,7 @@ function CampaignsScreen({
   return (
     <div className="space-y-5">
       <ScreenHeader title="Campañas" subtitle="Constructor sencillo con checklist legal, segmentación y cola de envíos." />
-      <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+      <div className="space-y-5">
         <Card className="p-5">
           <div className="flex flex-col gap-2 sm:flex-row">
             <select className={inputClass} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
@@ -1688,87 +1688,93 @@ function CampaignsScreen({
               </div>
             )}
           </div>
-          <div className="grid min-h-[560px] lg:grid-cols-[240px_1fr]">
-            <div className="border-b border-slate-200 bg-slate-50 lg:border-b-0 lg:border-r">
-              <div className="border-b border-slate-200 px-4 py-3">
-                <p className="text-xs font-bold uppercase text-slate-500">Chats activos</p>
-              </div>
-              <div className="max-h-[520px] overflow-y-auto">
-                {conversations.map((conversation) => {
-                  const isSelected = selectedConversation?.lead.id === conversation.lead.id;
-                  const lastText = conversation.lastInbound
-                    ? conversation.lastInbound.body
-                    : conversation.pending
-                      ? queueComposerBody(conversation.pending)
-                      : conversation.lastOutbound?.body ?? conversation.blockedReason ?? "Sin movimiento";
-                  return (
-                    <button
-                      key={conversation.lead.id}
-                      type="button"
-                      onClick={() => setSelectedChatId(conversation.lead.id)}
-                      className={`block w-full border-b border-slate-200 px-4 py-3 text-left transition ${isSelected ? "bg-white" : "bg-slate-50 hover:bg-white"}`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
-                          <p className="truncate text-xs text-slate-500">{conversation.lead.personaContacto || normalizePhone(conversation.lead.telefono)}</p>
-                        </div>
-                        <span className={`mt-0.5 h-2.5 w-2.5 rounded-full ${
-                          conversation.status === "chat_abierto"
-                            ? "bg-blue-500"
-                            : conversation.status === "pendiente_envio"
-                              ? "bg-slate-400"
-                              : conversation.status === "respondio_si"
-                                ? "bg-emerald-500"
-                                : conversation.status === "esperando_respuesta"
-                                  ? "bg-amber-500"
-                                  : "bg-slate-300"
-                        }`} />
+          <div className="border-b border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+              <p className="text-xs font-bold uppercase text-slate-500">Chats activos</p>
+              <span className="text-xs font-semibold text-slate-400">{conversations.length} activo(s)</span>
+            </div>
+            <div className="flex gap-2 overflow-x-auto px-5 py-3">
+              {conversations.map((conversation) => {
+                const isSelected = selectedConversation?.lead.id === conversation.lead.id;
+                const lastText = conversation.lastInbound
+                  ? conversation.lastInbound.body
+                  : conversation.pending
+                    ? queueComposerBody(conversation.pending)
+                    : conversation.lastOutbound?.body ?? conversation.blockedReason ?? "Sin movimiento";
+                return (
+                  <button
+                    key={conversation.lead.id}
+                    type="button"
+                    onClick={() => setSelectedChatId(conversation.lead.id)}
+                    className={`min-w-[190px] max-w-[240px] rounded-md border px-3 py-2 text-left transition ${
+                      isSelected ? "border-connessia-300 bg-white shadow-sm" : "border-slate-200 bg-slate-50 hover:bg-white"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
+                        <p className="truncate text-xs text-slate-500">{conversation.lead.personaContacto || normalizePhone(conversation.lead.telefono)}</p>
                       </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-600">{lastText}</p>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <Badge value={conversationStatusLabel(conversation.status)} />
-                        <span className="text-[11px] font-semibold text-slate-400">{conversation.messages.length} msg</span>
-                      </div>
-                    </button>
-                  );
-                })}
-                {conversations.length === 0 && <p className="p-4 text-sm text-slate-500">Todavia no hay leads dentro de esta campana.</p>}
-              </div>
-              {closedConversations.length > 0 && (
-                <div className="border-t border-slate-200 bg-white">
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-                    <p className="text-xs font-bold uppercase text-slate-500">Terminados</p>
-                    <button
-                      type="button"
-                      className="text-xs font-bold text-connessia-700 hover:text-connessia-900"
-                      onClick={archiveAllClosedCampaignChats}
-                    >
-                      Limpiar
-                    </button>
-                  </div>
-                  <div className="max-h-44 overflow-y-auto">
-                    {closedConversations.map((conversation) => (
-                      <div key={conversation.lead.id} className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 text-sm">
-                        <div className="min-w-0">
-                          <p className="truncate font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
-                          <p className="truncate text-xs text-slate-500">{contactedOutcomeLabels[conversation.lead.contactadoResultado ?? "interesado_comercial"]}</p>
-                        </div>
-                        <button
-                          type="button"
-                          title="Eliminar chat terminado de esta vista"
-                          className="rounded-md border border-slate-200 p-2 text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-                          onClick={() => archiveCampaignChat(conversation.lead.id)}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                      <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${
+                        conversation.status === "chat_abierto"
+                          ? "bg-blue-500"
+                          : conversation.status === "pendiente_envio"
+                            ? "bg-slate-400"
+                            : conversation.status === "respondio_si"
+                              ? "bg-emerald-500"
+                              : conversation.status === "esperando_respuesta"
+                                ? "bg-amber-500"
+                                : "bg-slate-300"
+                      }`} />
+                    </div>
+                    <p className="mt-1 truncate text-xs text-slate-600">{lastText}</p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <Badge value={conversationStatusLabel(conversation.status)} />
+                      <span className="text-[11px] font-semibold text-slate-400">{conversation.messages.length} msg</span>
+                    </div>
+                  </button>
+                );
+              })}
+              {conversations.length === 0 && (
+                <div className="rounded-md border border-dashed border-slate-300 px-4 py-3 text-sm text-slate-500">
+                  Todavia no hay leads dentro de esta campana.
                 </div>
               )}
             </div>
-            <div className="flex min-h-[560px] flex-col bg-[#efe7dc]">
+            {closedConversations.length > 0 && (
+              <div className="border-t border-slate-200 bg-white px-5 py-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase text-slate-500">Terminados</p>
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-connessia-700 hover:text-connessia-900"
+                    onClick={archiveAllClosedCampaignChats}
+                  >
+                    Limpiar todos
+                  </button>
+                </div>
+                <div className="flex gap-2 overflow-x-auto">
+                  {closedConversations.map((conversation) => (
+                    <div key={conversation.lead.id} className="flex min-w-[190px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
+                        <p className="truncate text-xs text-slate-500">{contactedOutcomeLabels[conversation.lead.contactadoResultado ?? "interesado_comercial"]}</p>
+                      </div>
+                      <button
+                        type="button"
+                        title="Eliminar chat terminado de esta vista"
+                        className="rounded-md border border-slate-200 p-2 text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => archiveCampaignChat(conversation.lead.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex min-h-[620px] flex-col bg-[#efe7dc]">
               {selectedConversation ? (
                 <>
                   <div className="border-b border-slate-200 bg-white px-5 py-4">
@@ -1782,11 +1788,6 @@ function CampaignsScreen({
                           {selectedConversation.lead.personaContacto || "Sin contacto"} · {normalizePhone(selectedConversation.lead.telefono)}
                         </p>
                       </div>
-                      {selectedConversation.pending && (
-                        <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => openQueueItem(selectedConversation.pending as QueueItem)}>
-                          Abrir chat
-                        </Button>
-                      )}
                     </div>
                   </div>
                   <div className="flex-1 space-y-3 overflow-y-auto p-5">
@@ -1811,6 +1812,9 @@ function CampaignsScreen({
                     <div className="flex flex-wrap gap-2">
                       {selectedConversation.pending && (
                         <>
+                          <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => openQueueItem(selectedConversation.pending as QueueItem)}>
+                            Abrir chat
+                          </Button>
                           {selectedConversation.pending.mediaUrl && (
                             <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => window.open(selectedConversation.pending?.mediaUrl, "_blank", "noopener,noreferrer")}>
                               Abrir asset
@@ -1886,7 +1890,6 @@ function CampaignsScreen({
                 </div>
               )}
             </div>
-          </div>
         </Card>
         <Card className="hidden">
           <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">

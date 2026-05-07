@@ -37,7 +37,23 @@ async function getAll<T>(collectionName: string): Promise<T[]> {
 async function saveOne(collectionName: string, id: string, data: any) {
   const db = getFirebaseDb();
   if (!db) throw new Error("Firebase no esta configurado.");
-  await setDoc(doc(db, collectionName, id), data);
+  await setDoc(doc(db, collectionName, id), removeUndefinedFields(data));
+}
+
+function removeUndefinedFields<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => removeUndefinedFields(item)).filter((item) => item !== undefined) as T;
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entryValue]) => entryValue !== undefined)
+        .map(([key, entryValue]) => [key, removeUndefinedFields(entryValue)])
+    ) as T;
+  }
+
+  return value;
 }
 
 async function deleteOne(collectionName: string, id: string) {
