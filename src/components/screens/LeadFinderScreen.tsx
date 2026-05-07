@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Search, 
   Download, 
@@ -20,7 +20,7 @@ import { Card } from "../ui/Card";
 import { StatCard } from "../ui/StatCard";
 import { Badge } from "../ui/Badge";
 import { Modal } from "../ui/Modal";
-import { getGoogleMapsApiKey, getUsageData, saveGoogleMapsApiKey, updateUsageCount, incrementUsageInDb } from "../../services/configStore";
+import { getCurrentUsageMonthKey, getDaysUntilUsageReset, getGoogleMapsApiKey, getUsageData, saveGoogleMapsApiKey, incrementUsageInDb } from "../../services/configStore";
 import { useCrmStore } from "../../services/crmStore";
 import type { Lead } from "../../types/domain";
 
@@ -86,6 +86,8 @@ export function LeadFinderScreen() {
   const [usageCount, setUsageCount] = useState(0);
   const [hasRemoteKey, setHasRemoteKey] = useState(false);
   const [daysUntilReset, setDaysUntilReset] = useState(0);
+  const usageCountRef = useRef(0);
+  const usageMonthKeyRef = useRef(getCurrentUsageMonthKey());
   
   const [postalCode, setPostalCode] = useState("");
   const [searchMode, setSearchMode] = useState<"especifico" | "masivo">("masivo");
@@ -111,23 +113,10 @@ export function LeadFinderScreen() {
         }
 
         const usage = await getUsageData();
-        if (usage) {
-          const lastResetDate = new Date(usage.lastReset);
-          const now = new Date();
-          
-          if (lastResetDate.getMonth() !== now.getMonth() || lastResetDate.getFullYear() !== now.getFullYear()) {
-            await updateUsageCount(0, now.toISOString());
-            setUsageCount(0);
-          } else {
-            setUsageCount(usage.count);
-          }
-        }
-
-        // Calculate days until next month
-        const now = new Date();
-        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-        const diff = Math.ceil((nextMonth.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        setDaysUntilReset(diff);
+        usageCountRef.current = usage.count;
+        usageMonthKeyRef.current = usage.monthKey;
+        setUsageCount(usage.count);
+        setDaysUntilReset(getDaysUntilUsageReset());
 
       } catch (err) {
         console.error("Failed to load initial data", err);
@@ -176,10 +165,35 @@ export function LeadFinderScreen() {
     }
   };
 
-  const incrementUsage = async (amount = 1) => {
-    const newCount = usageCount + amount;
-    setUsageCount(newCount);
-    await incrementUsageInDb(amount);
+  const currentUsageCount = () => {
+    if (usageMonthKeyRef.current !== getCurrentUsageMonthKey()) {
+      usageMonthKeyRef.current = getCurrentUsageMonthKey();
+      usageCountRef.current = 0;
+      setUsageCount(0);
+      setDaysUntilReset(getDaysUntilUsageReset());
+    }
+    return usageCountRef.current;
+  };
+
+  const incrementUsage = (amount = 1) => {
+    const nextCount = currentUsageCount() + amount;
+    usageCountRef.current = nextCount;
+    setUsageCount(nextCount);
+    setDaysUntilReset(getDaysUntilUsageReset());
+
+    incrementUsageInDb(amount)
+      .then((usage) => {
+        usageMonthKeyRef.current = usage.monthKey;
+        if (usage.monthKey !== getCurrentUsageMonthKey() || usage.count >= usageCountRef.current) {
+          usageCountRef.current = usage.count;
+          setUsageCount(usage.count);
+        }
+      })
+      .catch((error) => {
+        console.error("No se pudo guardar el uso de Google Maps", error);
+      });
+
+    return nextCount;
   };
 
   const geocodePostalCode = (cp: string): Promise<any> => {
@@ -242,7 +256,7 @@ export function LeadFinderScreen() {
               }
             }
             
-            if (pagination && pagination.hasNextPage && usageCount < apiLimit) {
+            if (pagination && pagination.hasNextPage && currentUsageCount() < apiLimit) {
               setLoadingMsg(`Paginando resultados para "${keyword}"...`);
               setTimeout(() => pagination.nextPage(), 2000);
             } else {
@@ -351,7 +365,7 @@ export function LeadFinderScreen() {
 
     if (!postalCode) return;
     if (searchMode === 'especifico' && !businessType) return;
-    if (usageCount >= apiLimit) {
+    if (currentUsageCount() >= apiLimit) {
       alert(`Límite de peticiones alcanzado (${apiLimit}).`);
       return;
     }
@@ -368,7 +382,7 @@ export function LeadFinderScreen() {
         await performNearbySearch(location, businessType);
       } else {
         for (const keyword of masivoKeywords) {
-          if (usageCount >= apiLimit) break;
+          if (currentUsageCount() >= apiLimit) break;
           await performNearbySearch(location, keyword);
         }
       }
