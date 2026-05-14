@@ -37,8 +37,8 @@ import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
 import type { AppUser, Campaign, CommercialAsset, ContactedLeadCloseStatus, ContactedLeadOutcome, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
 import { formatDate, formatDateTime, normalizePhone, percent, renderTemplate } from "./utils/formatters";
-import { onAuthStateChanged, signInWithEmailAndPassword, type User as FirebaseUser } from "firebase/auth";
-import { auth, firebaseConfigured } from "./services/firebase";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from "firebase/auth";
+import { auth, ensureFirebaseConfigured } from "./services/firebase";
 import { useEffect } from "react";
 
 const inputClass =
@@ -178,34 +178,55 @@ export default function App() {
   const store = useCrmStore();
   const { state, metrics } = store;
   const [fbUser, setFbUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(firebaseConfigured);
+  const [loading, setLoading] = useState(true);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
   const [page, setPage] = useState<PageId>("dashboard");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [identityOpen, setIdentityOpen] = useState(false);
 
   useEffect(() => {
-    if (!firebaseConfigured || !auth) {
-      setLoading(false);
-      return undefined;
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+
+    async function prepareAuth() {
+      const firebaseApp = await ensureFirebaseConfigured(state.settings.firebaseConfig);
+      if (cancelled) return;
+
+      if (!firebaseApp || !auth) {
+        setAuthUnavailable(true);
+        setFbUser(null);
+        setLoading(false);
+        return;
+      }
+
+      unsubscribe = onAuthStateChanged(
+        auth,
+        (user) => {
+          setFbUser(user);
+          setLoading(false);
+          if (user) {
+            store.identifyUser({
+              nombre: user.displayName || user.email?.split("@")[0] || "Usuario",
+              email: user.email || "",
+              role: "admin"
+            });
+            store.syncRemoteData();
+          }
+        },
+        () => {
+          setFbUser(null);
+          setLoading(false);
+        }
+      );
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setFbUser(user);
-      setLoading(false);
-      if (user) {
-        // Sync CRM store user
-        store.identifyUser({
-          nombre: user.displayName || user.email?.split("@")[0] || "Usuario",
-          email: user.email || "",
-          role: "admin" // Default to admin for simplicity or fetch from DB
-        });
-      }
-    }, () => {
-      setFbUser(null);
-      setLoading(false);
-    });
-    return () => unsubscribe();
+    prepareAuth();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, []);
 
   if (loading) {
@@ -216,7 +237,11 @@ export default function App() {
     );
   }
 
-  if (firebaseConfigured && !fbUser) {
+  if (authUnavailable) {
+    return <AuthUnavailableScreen />;
+  }
+
+  if (!fbUser) {
     return <AuthScreen />;
   }
 
@@ -237,7 +262,17 @@ export default function App() {
       <div className="flex min-h-screen">
         <Sidebar page={page} setPage={setPage} />
         <div className="min-w-0 flex-1">
-          <Topbar user={state.currentUser} onChangeUser={() => setIdentityOpen(true)} onMenu={() => setMobileMenu(true)} />
+          <Topbar
+            user={state.currentUser}
+            onChangeUser={() => setIdentityOpen(true)}
+            onMenu={() => setMobileMenu(true)}
+            onLogout={async () => {
+              if (auth) {
+                await signOut(auth);
+              }
+              setFbUser(null);
+            }}
+          />
           <main className="mx-auto max-w-7xl px-4 py-6 lg:px-6">
             <Toast text={store.toast} />
             {page === "dashboard" && <Dashboard metrics={metrics} state={state} leads={visibleLeads} setPage={setPage} />}
@@ -414,6 +449,28 @@ function AuthScreen() {
             {loading ? "Entrando..." : "Entrar"}
           </Button>
         </form>
+      </Card>
+    </div>
+  );
+}
+
+function AuthUnavailableScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
+      <Card className="w-full max-w-md p-8">
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-coral-50 text-coral-700">
+            <AlertTriangle size={24} />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-950">Acceso bloqueado</h1>
+            <p className="text-sm text-slate-500">Firebase Auth no esta configurado para este despliegue.</p>
+          </div>
+        </div>
+        <p className="text-sm leading-6 text-slate-600">
+          Por seguridad, el panel no puede abrirse en modo demo. Configura Firebase en las variables de entorno o en
+          Firebase Hosting y vuelve a cargar la aplicacion.
+        </p>
       </Card>
     </div>
   );

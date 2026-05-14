@@ -2,10 +2,8 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Modo simple para esta app sin login: permite que el panel web guarde los datos.
-    // Para produccion multiusuario conviene volver a reglas con Auth y roles.
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
   }
 }

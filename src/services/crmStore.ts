@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   demoAssets,
   demoCampaigns,
@@ -282,8 +282,7 @@ export function useCrmStore() {
   const [state, setState] = useState<CrmState>(() => loadState());
   const [toast, setToast] = useState("Modo WhatsApp Web activo. La app prepara mensajes y tú confirmas el envío.");
 
-  useEffect(() => {
-    async function loadAllData() {
+  async function syncRemoteData() {
       try {
         const firebaseApp = await ensureFirebaseConfigured(state.settings.firebaseConfig);
         if (!firebaseApp) {
@@ -343,9 +342,7 @@ export function useCrmStore() {
       } catch (error) {
         setToast(`Error al sincronizar con Firestore. Mantengo la copia local: ${error instanceof Error ? error.message : "Desconocido"}`);
       }
-    }
-    loadAllData();
-  }, []);
+  }
 
   const metrics = useMemo(() => calculateMetrics(state), [state]);
 
@@ -683,6 +680,7 @@ export function useCrmStore() {
     metrics,
     toast,
     setToast,
+    syncRemoteData,
     updateState,
     setRole,
     identifyUser,

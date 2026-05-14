@@ -1,16 +1,17 @@
 import { LogOut, Menu, ShieldCheck, UserCircle } from "lucide-react";
 import type { AppUser } from "../../types/domain";
 import { Button } from "../ui/Button";
-import { auth } from "../../services/firebase";
 
 export function Topbar({
   user,
   onChangeUser,
-  onMenu
+  onMenu,
+  onLogout
 }: {
   user: AppUser;
   onChangeUser: () => void;
   onMenu: () => void;
+  onLogout: () => void | Promise<void>;
 }) {
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur lg:px-6">
@@ -43,7 +44,7 @@ export function Topbar({
           <Button 
             variant="secondary" 
             className="px-3" 
-            onClick={() => auth?.signOut()}
+            onClick={onLogout}
             title="Cerrar Sesión"
           >
             <LogOut size={18} />

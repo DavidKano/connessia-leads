@@ -2,10 +2,8 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Modo simple para esta app sin login: permite subir y leer assets comerciales.
-    // Para produccion multiusuario conviene volver a reglas con Auth y roles.
     match /assets/{allPaths=**} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
   }
 }
