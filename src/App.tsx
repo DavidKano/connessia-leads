@@ -1248,6 +1248,10 @@ function CampaignsScreen({
   const [selectedId, setSelectedId] = useState(state.campaigns[0]?.id ?? "");
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [selectedChatId, setSelectedChatId] = useState("");
+  const [campaignTab, setCampaignTab] = useState<"campaigns" | "chats">("campaigns");
+  const [noteDraft, setNoteDraft] = useState("");
+  const [pasteDraft, setPasteDraft] = useState("");
+  const [pasteDirection, setPasteDirection] = useState<"inbound" | "outbound">("inbound");
   const campaign = state.campaigns.find((item) => item.id === selectedId) ?? state.campaigns[0];
   const allChecked = complianceItems.every((item) => checks.includes(item));
   const campaignQueue = campaign ? state.queue.filter((item) => item.campaignId === campaign.id) : [];
@@ -1275,8 +1279,10 @@ function CampaignsScreen({
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       const latestSent = [...leadQueue].reverse().find((item) => item.status === "sent");
       const pending = leadQueue.find((item) => item.status === "processing") ?? leadQueue.find((item) => item.status === "pending");
-      const lastInbound = [...leadMessages].reverse().find((message) => message.direction === "inbound");
-      const lastOutbound = [...leadMessages].reverse().find((message) => message.direction === "outbound");
+      const whatsappMessages = leadMessages.filter((message) => message.kind !== "internal_note");
+      const internalNotes = leadMessages.filter((message) => message.kind === "internal_note");
+      const lastInbound = [...whatsappMessages].reverse().find((message) => message.direction === "inbound");
+      const lastOutbound = [...whatsappMessages].reverse().find((message) => message.direction === "outbound");
       const blockedReason = canSendToLead(lead, state.doNotContact);
       const failed = [...leadQueue].reverse().find((item) => item.status === "failed" || item.status === "cancelled");
       const status = lastInbound
@@ -1296,7 +1302,7 @@ function CampaignsScreen({
                 : blockedReason
                   ? "bloqueado"
                   : "sin_preparar";
-      return { lead, queue: leadQueue, messages: leadMessages, latestSent, pending, lastInbound, lastOutbound, blockedReason, failed, status, isClosed, isArchived };
+      return { lead, queue: leadQueue, messages: leadMessages, whatsappMessages, internalNotes, latestSent, pending, lastInbound, lastOutbound, blockedReason, failed, status, isClosed, isArchived };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
   const conversations = allConversations
@@ -1337,15 +1343,25 @@ function CampaignsScreen({
         ...selectedConversation.messages.map((message) => ({
           id: message.id,
           direction: message.direction,
+          kind: message.kind ?? "message",
           body: message.body,
           at: message.createdAt,
-          label: message.direction === "inbound" ? "Cliente" : "Tu"
+          label: message.kind === "internal_note"
+            ? `Nota interna${message.authorName ? ` · ${message.authorName}` : ""}`
+            : message.kind === "whatsapp_paste"
+              ? message.direction === "inbound"
+                ? "WhatsApp pegado · Cliente"
+                : "WhatsApp pegado · Equipo"
+              : message.direction === "inbound"
+                ? "Cliente"
+                : "Tu"
         })),
         ...selectedConversation.queue
           .filter((item) => item.status === "pending" || item.status === "processing")
           .map((item) => ({
             id: item.id,
             direction: "outbound" as const,
+            kind: "message" as const,
             body: queueComposerBody(item),
             at: item.scheduledAt,
             label: item.status === "processing" ? "Abierto en WhatsApp" : "Preparado"
@@ -1614,6 +1630,36 @@ function CampaignsScreen({
     if (selectedChatId === leadId) setSelectedChatId("");
   }
 
+  function deleteCampaignChat(leadId: string) {
+    if (!campaign) return;
+    const lead = state.leads.find((item) => item.id === leadId);
+    const label = lead?.nombreNegocio ?? "este chat";
+    if (!window.confirm(`Borrar el chat de ${label}? Se eliminaran sus mensajes, notas y cola de esta campana, pero no el lead.`)) return;
+
+    const now = new Date().toISOString();
+    updateState(
+      {
+        ...state,
+        queue: state.queue.filter((item) => !(item.leadId === leadId && item.campaignId === campaign.id)),
+        messages: state.messages.filter((message) => !(message.leadId === leadId && message.campaignId === campaign.id)),
+        leads: state.leads.map((candidate) =>
+          candidate.id === leadId
+            ? {
+                ...candidate,
+                campaignChatClosedAt: undefined,
+                campaignChatClosedCampaignId: undefined,
+                campaignChatArchivedAt: undefined,
+                campaignChatArchivedBy: undefined,
+                updatedAt: now
+              }
+            : candidate
+        )
+      },
+      "Chat borrado de esta campana."
+    );
+    if (selectedChatId === leadId) setSelectedChatId("");
+  }
+
   function archiveAllClosedCampaignChats() {
     if (closedConversations.length === 0) {
       updateState(state, "No hay chats terminados para limpiar.");
@@ -1642,10 +1688,79 @@ function CampaignsScreen({
     if (selectedChatId && closedIds.has(selectedChatId)) setSelectedChatId("");
   }
 
+  function appendChatMessage(kind: "internal_note" | "whatsapp_paste", body: string, direction: "inbound" | "outbound" = "inbound") {
+    if (!selectedConversation || !body.trim()) return;
+    const now = new Date().toISOString();
+    updateState(
+      {
+        ...state,
+        messages: [
+          ...state.messages,
+          {
+            id: `msg-${crypto.randomUUID()}`,
+            leadId: selectedConversation.lead.id,
+            campaignId: campaign?.id,
+            direction,
+            channel: "whatsapp",
+            kind,
+            body: body.trim(),
+            authorId: state.currentUser.uid,
+            authorName: state.currentUser.nombre,
+            status: kind === "internal_note" ? "internal" : "logged",
+            createdAt: now
+          }
+        ],
+        leads: state.leads.map((lead) =>
+          lead.id === selectedConversation.lead.id
+            ? { ...lead, updatedAt: now, proximaAccion: kind === "internal_note" ? lead.proximaAccion : "Conversacion real pegada en el chat" }
+            : lead
+        )
+      },
+      kind === "internal_note" ? "Nota interna guardada en el chat." : "Texto de WhatsApp pegado en el chat."
+    );
+  }
+
+  function saveInternalNote() {
+    appendChatMessage("internal_note", noteDraft, "outbound");
+    setNoteDraft("");
+  }
+
+  function saveWhatsappPaste() {
+    appendChatMessage("whatsapp_paste", pasteDraft, pasteDirection);
+    setPasteDraft("");
+  }
+
   return (
     <div className="space-y-5">
       <ScreenHeader title="Campañas" subtitle="Constructor sencillo con checklist legal, segmentación y cola de envíos." />
-      <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="self-start rounded-lg border border-slate-200 bg-white p-2">
+          <button
+            type="button"
+            onClick={() => setCampaignTab("campaigns")}
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold transition ${
+              campaignTab === "campaigns" ? "bg-connessia-50 text-connessia-900" : "text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Send size={16} />
+            Campañas
+          </button>
+          <button
+            type="button"
+            onClick={() => setCampaignTab("chats")}
+            className={`mt-1 flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold transition ${
+              campaignTab === "chats" ? "bg-connessia-50 text-connessia-900" : "text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <span className="flex items-center gap-3">
+              <MessageCircle size={16} />
+              Chats
+            </span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{conversations.length}</span>
+          </button>
+        </aside>
+        <div className="min-w-0 space-y-5">
+        {campaignTab === "campaigns" && (
         <Card className="p-5">
           <div className="flex flex-col gap-2 sm:flex-row">
             <select className={inputClass} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
@@ -1716,12 +1831,17 @@ function CampaignsScreen({
             </div>
           )}
         </Card>
+        )}
+        {campaignTab === "chats" && (
         <Card className="overflow-hidden">
           <div className="border-b border-slate-200 p-5">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
               <div>
                 <h3 className="text-lg font-bold text-slate-950">Chats de la campana</h3>
                 <p className="text-sm text-slate-500">Trabaja cada lead como una conversacion y avanza al siguiente sin perder contexto.</p>
+                <select className={`${inputClass} mt-3 max-w-md`} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+                  {state.campaigns.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
+                </select>
               </div>
               <div className="flex flex-wrap gap-2">
                 {closedConversations.length > 0 && (
@@ -1745,12 +1865,13 @@ function CampaignsScreen({
               </div>
             )}
           </div>
-          <div className="border-b border-slate-200 bg-slate-50">
+          <div className="grid min-h-[680px] lg:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="border-b border-slate-200 bg-white lg:border-b-0 lg:border-r">
             <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
               <p className="text-xs font-bold uppercase text-slate-500">Chats activos</p>
               <span className="text-xs font-semibold text-slate-400">{conversations.length} activo(s)</span>
             </div>
-            <div className="flex gap-2 overflow-x-auto px-5 py-3">
+            <div className="space-y-2 px-4 py-3">
               {conversations.map((conversation) => {
                 const isSelected = selectedConversation?.lead.id === conversation.lead.id;
                 const lastText = conversation.lastInbound
@@ -1763,8 +1884,8 @@ function CampaignsScreen({
                     key={conversation.lead.id}
                     type="button"
                     onClick={() => setSelectedChatId(conversation.lead.id)}
-                    className={`min-w-[190px] max-w-[240px] rounded-md border px-3 py-2 text-left transition ${
-                      isSelected ? "border-connessia-300 bg-white shadow-sm" : "border-slate-200 bg-slate-50 hover:bg-white"
+                    className={`w-full rounded-md border px-3 py-2 text-left transition ${
+                      isSelected ? "border-connessia-300 bg-connessia-50 shadow-sm" : "border-slate-200 bg-white hover:bg-slate-50"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1772,17 +1893,37 @@ function CampaignsScreen({
                         <p className="truncate text-sm font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
                         <p className="truncate text-xs text-slate-500">{conversation.lead.personaContacto || normalizePhone(conversation.lead.telefono)}</p>
                       </div>
-                      <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${
-                        conversation.status === "chat_abierto"
-                          ? "bg-blue-500"
-                          : conversation.status === "pendiente_envio"
-                            ? "bg-slate-400"
-                            : conversation.status === "respondio_si"
-                              ? "bg-emerald-500"
-                              : conversation.status === "esperando_respuesta"
-                                ? "bg-amber-500"
-                                : "bg-slate-300"
-                      }`} />
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className={`mt-0.5 h-2.5 w-2.5 rounded-full ${
+                          conversation.status === "chat_abierto"
+                            ? "bg-blue-500"
+                            : conversation.status === "pendiente_envio"
+                              ? "bg-slate-400"
+                              : conversation.status === "respondio_si"
+                                ? "bg-emerald-500"
+                                : conversation.status === "esperando_respuesta"
+                                  ? "bg-amber-500"
+                                  : "bg-slate-300"
+                        }`} />
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          title="Borrar chat"
+                          className="rounded-md border border-slate-200 p-1 text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteCampaignChat(conversation.lead.id);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            deleteCampaignChat(conversation.lead.id);
+                          }}
+                        >
+                          <Trash2 size={13} />
+                        </span>
+                      </div>
                     </div>
                     <p className="mt-1 truncate text-xs text-slate-600">{lastText}</p>
                     <div className="mt-2 flex items-center justify-between gap-2">
@@ -1810,9 +1951,9 @@ function CampaignsScreen({
                     Limpiar todos
                   </button>
                 </div>
-                <div className="flex gap-2 overflow-x-auto">
+                <div className="space-y-2">
                   {closedConversations.map((conversation) => (
-                    <div key={conversation.lead.id} className="flex min-w-[190px] items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                    <div key={conversation.lead.id} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                       <div className="min-w-0">
                         <p className="truncate font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
                         <p className="truncate text-xs text-slate-500">{contactedOutcomeLabels[conversation.lead.contactadoResultado ?? "interesado_comercial"]}</p>
@@ -1831,7 +1972,7 @@ function CampaignsScreen({
               </div>
             )}
           </div>
-          <div className="flex min-h-[620px] flex-col bg-[#efe7dc]">
+          <div className="flex min-h-[680px] flex-col bg-[#efe7dc]">
               {selectedConversation ? (
                 <>
                   <div className="border-b border-slate-200 bg-white px-5 py-4">
@@ -1845,12 +1986,21 @@ function CampaignsScreen({
                           {selectedConversation.lead.personaContacto || "Sin contacto"} · {normalizePhone(selectedConversation.lead.telefono)}
                         </p>
                       </div>
+                      <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => deleteCampaignChat(selectedConversation.lead.id)}>
+                        Borrar chat
+                      </Button>
                     </div>
                   </div>
                   <div className="flex-1 space-y-3 overflow-y-auto p-5">
                     {selectedTimeline.map((message) => (
-                      <div key={message.id} className={`flex ${message.direction === "inbound" ? "justify-start" : "justify-end"}`}>
-                        <div className={`max-w-[82%] rounded-lg px-3 py-2 text-sm shadow-sm ${message.direction === "inbound" ? "bg-white text-slate-800" : "bg-[#d9fdd3] text-slate-900"}`}>
+                      <div key={message.id} className={`flex ${message.kind === "internal_note" ? "justify-center" : message.direction === "inbound" ? "justify-start" : "justify-end"}`}>
+                        <div className={`max-w-[82%] rounded-lg px-3 py-2 text-sm shadow-sm ${
+                          message.kind === "internal_note"
+                            ? "border border-amber-200 bg-amber-50 text-amber-950"
+                            : message.direction === "inbound"
+                              ? "bg-white text-slate-800"
+                              : "bg-[#d9fdd3] text-slate-900"
+                        }`}>
                           <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
                             <span>{message.label}</span>
                             <span>{formatDateTime(message.at)}</span>
@@ -1939,6 +2089,46 @@ function CampaignsScreen({
                         </span>
                       )}
                     </div>
+                    <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <label className="text-xs font-bold uppercase text-slate-500">Nota interna</label>
+                        <textarea
+                          className={`${inputClass} mt-2 min-h-[92px] resize-y`}
+                          value={noteDraft}
+                          onChange={(event) => setNoteDraft(event.target.value)}
+                          placeholder="Ej: ha pedido precio, hablar con David antes de responder..."
+                        />
+                        <div className="mt-2 flex justify-end">
+                          <Button variant="secondary" disabled={!noteDraft.trim()} onClick={saveInternalNote}>
+                            Guardar nota
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <label className="text-xs font-bold uppercase text-slate-500">Pegar WhatsApp real</label>
+                          <select
+                            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                            value={pasteDirection}
+                            onChange={(event) => setPasteDirection(event.target.value as "inbound" | "outbound")}
+                          >
+                            <option value="inbound">Cliente</option>
+                            <option value="outbound">Equipo</option>
+                          </select>
+                        </div>
+                        <textarea
+                          className={`${inputClass} mt-2 min-h-[92px] resize-y`}
+                          value={pasteDraft}
+                          onChange={(event) => setPasteDraft(event.target.value)}
+                          placeholder="Pega aqui fragmentos de la conversacion real de WhatsApp"
+                        />
+                        <div className="mt-2 flex justify-end">
+                          <Button variant="secondary" disabled={!pasteDraft.trim()} onClick={saveWhatsappPaste}>
+                            Guardar texto
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </>
               ) : (
@@ -1947,7 +2137,9 @@ function CampaignsScreen({
                 </div>
               )}
             </div>
+          </div>
         </Card>
+        )}
         <Card className="hidden">
           <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
             <div>
@@ -2057,6 +2249,7 @@ function CampaignsScreen({
             {conversations.length === 0 && <p className="text-sm text-slate-500">Todavia no hay leads dentro de esta campana.</p>}
           </div>
         </Card>
+      </div>
       </div>
       {editingCampaign && (
         <CampaignFormModal

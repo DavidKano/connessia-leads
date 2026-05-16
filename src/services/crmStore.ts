@@ -707,10 +707,11 @@ export function useCrmStore() {
 
 function calculateMetrics(state: CrmState): Metrics {
   const today = new Date().toISOString().slice(0, 10);
-  const outboundToday = state.messages.filter(
+  const metricMessages = state.messages.filter((message) => message.kind !== "internal_note");
+  const outboundToday = metricMessages.filter(
     (message) => message.direction === "outbound" && message.createdAt.startsWith(today)
   );
-  const inbound = state.messages.filter((message) => message.direction === "inbound");
+  const inbound = metricMessages.filter((message) => message.direction === "inbound");
   const positive = inbound.filter((message) => /sí|si|interesa|info|vale/i.test(message.body));
   const negative = inbound.filter((message) => /no|baja|stop/i.test(message.body));
   const ambiguous = state.leads.filter((lead) => lead.estado === "respuesta_ambigua").length;
@@ -727,11 +728,11 @@ function calculateMetrics(state: CrmState): Metrics {
     convertidos: converted,
     mensajesEnviadosHoy: outboundToday.length,
     respuestasRecibidas: inbound.length,
-    tasaRespuesta: state.messages.length ? (inbound.length / state.messages.length) * 100 : 0,
+    tasaRespuesta: metricMessages.length ? (inbound.length / metricMessages.length) * 100 : 0,
     tasaInteres: inbound.length ? (positive.length / inbound.length) * 100 : 0,
     proximasDemos: state.demos.filter((demo) => demo.status === "programada").length,
     campanasActivas: state.campaigns.filter((campaign) => campaign.estado === "activa").length,
-    mensajesFallidos: state.messages.filter((message) => message.status === "failed").length,
+    mensajesFallidos: metricMessages.filter((message) => message.status === "failed").length,
     respuestasSi: positive.length,
     respuestasNo: negative.length,
     respuestasAmbiguas: ambiguous,

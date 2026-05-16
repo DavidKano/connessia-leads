@@ -159,9 +159,12 @@ export interface Message {
   campaignId?: string;
   direction: Direction;
   channel: "whatsapp";
+  kind?: "message" | "internal_note" | "whatsapp_paste";
   body: string;
   mediaUrl?: string;
   providerMessageId?: string;
+  authorId?: string;
+  authorName?: string;
   status: string;
   createdAt: string;
 }
