@@ -1021,6 +1021,39 @@ function LeadFormModal({
             {users.map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
           </select>
         </label>
+        <label className="md:col-span-2">
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Resultado contacto comercial (Bandeja de Contactados)</span>
+          <select 
+            className={inputClass} 
+            value={draft.contactadoResultado ?? ""} 
+            onChange={(event) => {
+              const outcome = event.target.value as ContactedLeadOutcome | "";
+              if (!outcome) {
+                setDraft((current) => ({
+                  ...current,
+                  contactadoResultado: undefined,
+                  contactadoAt: undefined,
+                  contactadoBy: undefined
+                }));
+              } else {
+                const now = new Date().toISOString();
+                setDraft((current) => ({
+                  ...current,
+                  contactadoResultado: outcome,
+                  estado: outcome === "no_interesa" ? "no_interesado" : "interesado",
+                  contactadoAt: current.contactadoAt ?? now,
+                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
+                  proximaAccion: outcome === "no_interesa" ? "No contactar salvo nueva solicitud" : "Comercial debe contactar"
+                }));
+              }
+            }}
+          >
+            <option value="">-- Sin contactar / Campaña en curso --</option>
+            <option value="interesado_comercial">Interesado - paso a comercial (Aparece en Leads Contactados)</option>
+            <option value="dudoso_comercial">Dudoso - paso a comercial (Aparece en Leads Contactados)</option>
+            <option value="no_interesa">No interesa (Aparece en Leads Contactados)</option>
+          </select>
+        </label>
         <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 md:col-span-2">
           <input type="checkbox" checked={draft.tieneConsentimientoWhatsapp} onChange={(event) => update("tieneConsentimientoWhatsapp", event.target.checked)} />
           <span className="text-sm font-semibold text-slate-700">Tiene consentimiento WhatsApp trazable</span>
