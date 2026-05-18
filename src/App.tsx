@@ -184,6 +184,7 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [identityOpen, setIdentityOpen] = useState(false);
+  const [schedulingDemo, setSchedulingDemo] = useState<Demo | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -294,6 +295,20 @@ export default function App() {
                 state={state}
                 onSelect={setSelectedLeadId}
                 onSave={store.upsertLead}
+                onScheduleDemo={(lead) => {
+                  setSchedulingDemo({
+                    id: crypto.randomUUID(),
+                    leadId: lead.id,
+                    date: new Date().toISOString().slice(0, 10),
+                    time: "10:00",
+                    assignedTo: lead.comercialAsignado || state.currentUser.uid,
+                    status: "programada",
+                    notes: "",
+                    meetingUrl: "",
+                    result: "",
+                    createdAt: new Date().toISOString()
+                  });
+                }}
               />
             )}
             {page === "terminados" && (
@@ -363,6 +378,21 @@ export default function App() {
           tasks={state.tasks.filter((task) => task.leadId === selectedLead.id)}
           onClose={() => setSelectedLeadId(null)}
           onSave={store.upsertLead}
+          onScheduleDemo={() => {
+            setSchedulingDemo({
+              id: crypto.randomUUID(),
+              leadId: selectedLead.id,
+              date: new Date().toISOString().slice(0, 10),
+              time: "10:00",
+              assignedTo: selectedLead.comercialAsignado || state.currentUser.uid,
+              status: "programada",
+              notes: "",
+              meetingUrl: "",
+              result: "",
+              createdAt: new Date().toISOString()
+            });
+            setSelectedLeadId(null);
+          }}
         />
       )}
       {identityOpen && (
@@ -372,6 +402,27 @@ export default function App() {
           onSave={(user) => {
             store.identifyUser(user);
             setIdentityOpen(false);
+          }}
+        />
+      )}
+      {schedulingDemo && (
+        <DemoFormModal
+          demo={schedulingDemo}
+          leads={state.leads}
+          users={state.users}
+          onClose={() => setSchedulingDemo(null)}
+          onSave={(demo) => {
+            store.upsertDemo(demo);
+            const lead = state.leads.find((l) => l.id === demo.leadId);
+            if (lead) {
+              store.upsertLead({
+                ...lead,
+                estado: "demo_agendada",
+                proximaAccion: "Demo agendada",
+                updatedAt: new Date().toISOString()
+              });
+            }
+            setSchedulingDemo(null);
           }}
         />
       )}
@@ -1001,6 +1052,27 @@ function LeadGroupFormModal({
   );
 }
 
+function LeadNoteEditor({ lead, onSave }: { lead: Lead; onSave: (lead: Lead) => void }) {
+  const [notas, setNotas] = useState(lead.notas || "");
+  return (
+    <div className="mt-3">
+      <label className="mb-1 block text-sm font-semibold text-slate-700">Notas u observaciones</label>
+      <textarea
+        className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-connessia-500 focus:bg-white focus:ring-2 focus:ring-connessia-100 transition-colors"
+        rows={3}
+        placeholder="Añade observaciones sobre el contacto..."
+        value={notas}
+        onChange={(e) => setNotas(e.target.value)}
+        onBlur={() => {
+          if (notas !== (lead.notas || "")) {
+            onSave({ ...lead, notas, updatedAt: new Date().toISOString() });
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 function LeadDetailModal({
   lead,
   messages,
@@ -1008,7 +1080,8 @@ function LeadDetailModal({
   campaigns,
   tasks,
   onClose,
-  onSave
+  onSave,
+  onScheduleDemo
 }: {
   lead: Lead;
   messages: ReturnType<typeof useCrmStore>["state"]["messages"];
@@ -1017,6 +1090,7 @@ function LeadDetailModal({
   tasks: ReturnType<typeof useCrmStore>["state"]["tasks"];
   onClose: () => void;
   onSave: (lead: Lead) => void;
+  onScheduleDemo: () => void;
 }) {
   const timeline = [
     ...messages.map((message) => ({
@@ -1089,10 +1163,11 @@ function LeadDetailModal({
             </div>
           ))}
         </div>
+        <LeadNoteEditor lead={lead} onSave={onSave} />
       </div>
       <div className="mt-5 flex flex-wrap gap-2">
         <Button onClick={() => onSave({ ...lead, estado: "interesado", updatedAt: new Date().toISOString() })}>Marcar interesado</Button>
-        <Button variant="secondary" onClick={() => onSave({ ...lead, estado: "demo_agendada", updatedAt: new Date().toISOString() })}>Demo agendada</Button>
+        <Button variant="secondary" onClick={onScheduleDemo}>Agendar demo</Button>
         <Button variant="danger" onClick={() => onSave({ ...lead, estado: "baja", fechaBaja: new Date().toISOString(), updatedAt: new Date().toISOString() })}>Baja</Button>
       </div>
     </Modal>
@@ -2268,11 +2343,13 @@ function CampaignsScreen({
 function ContactedLeadsScreen({
   state,
   onSelect,
-  onSave
+  onSave,
+  onScheduleDemo
 }: {
   state: ReturnType<typeof useCrmStore>["state"];
   onSelect: (id: string) => void;
   onSave: (lead: Lead) => void;
+  onScheduleDemo: (lead: Lead) => void;
 }) {
   const outcomes: ContactedLeadOutcome[] = ["interesado_comercial", "dudoso_comercial", "no_interesa"];
   const contactedLeads = state.leads
@@ -2353,8 +2430,8 @@ function ContactedLeadsScreen({
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Button variant="secondary" onClick={() => onSelect(lead.id)}>Abrir ficha</Button>
                         {outcome !== "no_interesa" && (
-                          <Button onClick={() => onSave({ ...lead, estado: "demo_agendada", proximaAccion: "Demo agendada", updatedAt: new Date().toISOString() })}>
-                            Demo agendada
+                          <Button onClick={() => onScheduleDemo(lead)}>
+                            Agendar demo
                           </Button>
                         )}
                         <Button onClick={() => closeLead(lead, "terminado")}>
