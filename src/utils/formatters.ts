@@ -7,7 +7,19 @@ export function isValidInternationalPhone(phone: string) {
 }
 
 export function normalizePhone(phone: string) {
-  return phone.replace(/\s+/g, "").replace(/[()-]/g, "");
+  let cleaned = phone.replace(/\s+/g, "").replace(/[()-]/g, "");
+  if (!cleaned) return "";
+
+  // If it starts with a country code but no +, e.g. 34667467104
+  if (/^[1-9]\d{10,14}$/.test(cleaned)) {
+    cleaned = "+" + cleaned;
+  }
+  // If it is a standard Spanish mobile or landline number with 9 digits, e.g. 667467104
+  else if (/^[6789]\d{8}$/.test(cleaned)) {
+    cleaned = "+34" + cleaned;
+  }
+
+  return cleaned;
 }
 
 export function formatDateTime(value?: string) {

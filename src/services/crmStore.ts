@@ -56,7 +56,8 @@ import {
   loadSettingsFromFirestore,
   saveSettingsToFirestore,
   loadMessagesFromFirestore,
-  saveMessageToFirestore
+  saveMessageToFirestore,
+  deleteMessageFromFirestore
 } from "./firestoreStore";
 import { configureFirebase, ensureFirebaseConfigured, getActiveFirebaseConfig } from "./firebase";
 import { normalizePhone } from "../utils/formatters";
@@ -355,6 +356,10 @@ export function useCrmStore() {
   }
 
   function deleteLead(leadId: string) {
+    const messagesToDelete = state.messages.filter((message) => message.leadId === leadId);
+    const tasksToDelete = state.tasks.filter((task) => task.leadId === leadId);
+    const demosToDelete = state.demos.filter((demo) => demo.leadId === leadId);
+
     updateState(
       {
         ...state,
@@ -366,8 +371,21 @@ export function useCrmStore() {
       },
       "Lead eliminado."
     );
+
     deleteLeadFromFirestore(leadId).catch((error) => {
-      setToast(`Lead eliminado localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa reglas/configuracion"}.`);
+      setToast(`Error al eliminar lead en Firestore: ${error instanceof Error ? error.message : "Desconocido"}`);
+    });
+
+    messagesToDelete.forEach((msg) => {
+      deleteMessageFromFirestore(msg.id).catch((err) => console.error("Error al eliminar mensaje de Firestore:", err));
+    });
+
+    tasksToDelete.forEach((t) => {
+      deleteTaskFromFirestore(t.id).catch((err) => console.error("Error al eliminar tarea de Firestore:", err));
+    });
+
+    demosToDelete.forEach((d) => {
+      deleteDemoFromFirestore(d.id).catch((err) => console.error("Error al eliminar demo de Firestore:", err));
     });
   }
 
