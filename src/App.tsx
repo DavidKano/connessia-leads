@@ -323,6 +323,7 @@ export default function App() {
                 state={state}
                 updateState={store.updateState}
                 onLeadSave={store.upsertLead}
+                onLeadDelete={store.deleteLead}
                 onCampaignUpdate={store.updateCampaign}
                 onCampaignDelete={store.deleteCampaign}
               />
@@ -1329,12 +1330,14 @@ function CampaignsScreen({
   state,
   updateState,
   onLeadSave,
+  onLeadDelete,
   onCampaignUpdate,
   onCampaignDelete
 }: {
   state: ReturnType<typeof useCrmStore>["state"];
   updateState: ReturnType<typeof useCrmStore>["updateState"];
   onLeadSave: (lead: Lead) => void;
+  onLeadDelete: (id: string) => void;
   onCampaignUpdate: (campaign: Campaign) => void;
   onCampaignDelete: (id: string) => void;
 }) {
@@ -1754,6 +1757,15 @@ function CampaignsScreen({
     if (selectedChatId === leadId) setSelectedChatId("");
   }
 
+  function handleDeleteLeadCompletely(leadId: string) {
+    const lead = state.leads.find((item) => item.id === leadId);
+    const label = lead?.nombreNegocio ?? "este lead";
+    if (!window.confirm(`ELIMINAR LEAD POR COMPLETO?\n\nEsta acción borrará a "${label}" de la base de datos de forma permanente, incluyendo todos sus mensajes de WhatsApp, tareas y demos en cascada.\n\nNo se volverá a encolar ni aparecerá en ninguna pantalla.`)) return;
+
+    onLeadDelete(leadId);
+    if (selectedChatId === leadId) setSelectedChatId("");
+  }
+
   function archiveAllClosedCampaignChats() {
     if (closedConversations.length === 0) {
       updateState(state, "No hay chats terminados para limpiar.");
@@ -2080,9 +2092,14 @@ function CampaignsScreen({
                           {selectedConversation.lead.personaContacto || "Sin contacto"} · {normalizePhone(selectedConversation.lead.telefono)}
                         </p>
                       </div>
-                      <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => deleteCampaignChat(selectedConversation.lead.id)}>
-                        Borrar chat
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="secondary" icon={<Trash2 size={16} />} onClick={() => deleteCampaignChat(selectedConversation.lead.id)} title="Limpia la cola y mensajes de esta campaña para este lead, pero lo conserva en el CRM">
+                          Limpiar chat
+                        </Button>
+                        <Button variant="danger" icon={<Trash2 size={16} />} onClick={() => handleDeleteLeadCompletely(selectedConversation.lead.id)} title="Elimina por completo a este lead del CRM y la base de datos de forma permanente">
+                          Eliminar lead
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <div className="flex-1 space-y-3 overflow-y-auto p-5">
