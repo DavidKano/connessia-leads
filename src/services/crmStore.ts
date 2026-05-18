@@ -57,7 +57,10 @@ import {
   saveSettingsToFirestore,
   loadMessagesFromFirestore,
   saveMessageToFirestore,
-  deleteMessageFromFirestore
+  deleteMessageFromFirestore,
+  loadQueueFromFirestore,
+  saveQueueItemToFirestore,
+  deleteQueueItemFromFirestore
 } from "./firestoreStore";
 import { configureFirebase, ensureFirebaseConfigured, getActiveFirebaseConfig } from "./firebase";
 import { normalizePhone } from "../utils/formatters";
@@ -221,8 +224,20 @@ function persistChangedEntities<T extends PersistableEntity>(
     .map(saveItem);
 }
 
+function persistDeletedEntities<T extends PersistableEntity>(
+  previousItems: T[],
+  nextItems: T[],
+  deleteItem: (id: string) => Promise<void>
+) {
+  const nextIds = new Set(nextItems.map((item) => item.id));
+  return previousItems
+    .filter((item) => !nextIds.has(item.id))
+    .map((item) => deleteItem(item.id));
+}
+
 function persistChangedFirestoreState(previous: CrmState, next: CrmState, setToast: (message: string) => void) {
   const jobs = [
+    // Saves & Updates
     ...persistChangedEntities(previous.leads, next.leads, saveLeadToFirestore),
     ...persistChangedEntities(previous.leadGroups, next.leadGroups, saveGroupToFirestore),
     ...persistChangedEntities(previous.templates, next.templates, saveTemplateToFirestore),
@@ -231,7 +246,19 @@ function persistChangedFirestoreState(previous: CrmState, next: CrmState, setToa
     ...persistChangedEntities(previous.tasks, next.tasks, saveTaskToFirestore),
     ...persistChangedEntities(previous.demos, next.demos, saveDemoToFirestore),
     ...persistChangedEntities(previous.doNotContact, next.doNotContact, saveDNCToFirestore),
-    ...persistChangedEntities(previous.messages, next.messages, saveMessageToFirestore)
+    ...persistChangedEntities(previous.messages, next.messages, saveMessageToFirestore),
+    ...persistChangedEntities(previous.queue, next.queue, saveQueueItemToFirestore),
+
+    // Deletions
+    ...persistDeletedEntities(previous.leads, next.leads, deleteLeadFromFirestore),
+    ...persistDeletedEntities(previous.leadGroups, next.leadGroups, deleteGroupFromFirestore),
+    ...persistDeletedEntities(previous.templates, next.templates, deleteTemplateFromFirestore),
+    ...persistDeletedEntities(previous.campaigns, next.campaigns, deleteCampaignFromFirestore),
+    ...persistDeletedEntities(previous.assets, next.assets, deleteAssetFromFirestore),
+    ...persistDeletedEntities(previous.tasks, next.tasks, deleteTaskFromFirestore),
+    ...persistDeletedEntities(previous.demos, next.demos, deleteDemoFromFirestore),
+    ...persistDeletedEntities(previous.messages, next.messages, deleteMessageFromFirestore),
+    ...persistDeletedEntities(previous.queue, next.queue, deleteQueueItemFromFirestore)
   ];
 
   if (jobs.length === 0) return;
@@ -264,7 +291,8 @@ export function useCrmStore() {
           remoteDemos, 
           remoteDNC, 
           remoteSettings,
-          remoteMessages
+          remoteMessages,
+          remoteQueue
         ] = await Promise.all([
           loadLeadsFromFirestore(),
           loadGroupsFromFirestore(),
@@ -275,7 +303,8 @@ export function useCrmStore() {
           loadDemosFromFirestore(),
           loadDNCFromFirestore(),
           loadSettingsFromFirestore(),
-          loadMessagesFromFirestore()
+          loadMessagesFromFirestore(),
+          loadQueueFromFirestore()
         ]);
 
         setState((current) => {
@@ -290,7 +319,8 @@ export function useCrmStore() {
             demos: remoteDemos,
             doNotContact: remoteDNC,
             settings: resolveSettings(remoteSettings, current.settings),
-            messages: remoteMessages
+            messages: remoteMessages,
+            queue: remoteQueue ?? []
           });
           persistLocalState(next);
           return next;
@@ -356,10 +386,6 @@ export function useCrmStore() {
   }
 
   function deleteLead(leadId: string) {
-    const messagesToDelete = state.messages.filter((message) => message.leadId === leadId);
-    const tasksToDelete = state.tasks.filter((task) => task.leadId === leadId);
-    const demosToDelete = state.demos.filter((demo) => demo.leadId === leadId);
-
     updateState(
       {
         ...state,
@@ -371,22 +397,6 @@ export function useCrmStore() {
       },
       "Lead eliminado."
     );
-
-    deleteLeadFromFirestore(leadId).catch((error) => {
-      setToast(`Error al eliminar lead en Firestore: ${error instanceof Error ? error.message : "Desconocido"}`);
-    });
-
-    messagesToDelete.forEach((msg) => {
-      deleteMessageFromFirestore(msg.id).catch((err) => console.error("Error al eliminar mensaje de Firestore:", err));
-    });
-
-    tasksToDelete.forEach((t) => {
-      deleteTaskFromFirestore(t.id).catch((err) => console.error("Error al eliminar tarea de Firestore:", err));
-    });
-
-    demosToDelete.forEach((d) => {
-      deleteDemoFromFirestore(d.id).catch((err) => console.error("Error al eliminar demo de Firestore:", err));
-    });
   }
 
   function upsertLeadGroup(group: LeadGroup) {
