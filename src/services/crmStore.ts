@@ -80,7 +80,10 @@ export interface CrmState {
 const storageKey = "connessia-leads-demo-state";
 const firebaseConfigStorageKey = "connessia-firebase-config";
 
-const emptyRuntimeState = {
+
+const initialState: CrmState = {
+  users: demoUsers,
+  currentUser: demoUsers[0],
   leads: [],
   leadGroups: [],
   templates: [],
@@ -90,27 +93,12 @@ const emptyRuntimeState = {
   doNotContact: [],
   tasks: [],
   demos: [],
-  assets: []
-};
-
-const initialState: CrmState = {
-  users: demoUsers,
-  currentUser: demoUsers[0],
-  leads: demoLeads,
-  leadGroups: demoLeadGroups,
-  templates: demoTemplates,
-  campaigns: demoCampaigns,
-  messages: demoMessages,
-  queue: demoQueue,
-  doNotContact: demoDoNotContact,
-  tasks: demoTasks,
-  demos: demoDemos,
-  assets: demoAssets,
+  assets: [],
   settings: demoSettings
 };
 
 function loadState(): CrmState {
-  const cleanState = { ...initialState, ...emptyRuntimeState };
+  const cleanState = { ...initialState };
   if (typeof window === "undefined") return cleanState;
 
   try {
@@ -124,8 +112,6 @@ function loadState(): CrmState {
     const stored = JSON.parse(raw) as Partial<CrmState>;
     return normalizeLoadedState({
       ...cleanState,
-      ...stored,
-      users: stored.users?.length ? stored.users : cleanState.users,
       currentUser: stored.currentUser ?? cleanState.currentUser,
       settings: {
         ...cleanState.settings,
@@ -163,10 +149,14 @@ function normalizeLoadedState(state: CrmState): CrmState {
 function persistLocalState(state: CrmState) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(storageKey, JSON.stringify(state));
+    const minimalStateToSave = {
+      currentUser: state.currentUser,
+      settings: state.settings
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(minimalStateToSave));
     persistLocalFirebaseConfig(state.settings.firebaseConfig);
   } catch {
-    // Local backup is best effort. Firestore remains the main persistence layer.
+    // Best effort local persistence for the user config / session details.
   }
 }
 
@@ -203,10 +193,6 @@ function isFirebaseConfigFilled(config?: Partial<Settings["firebaseConfig"]> | n
   );
 }
 
-function remoteOrCurrent<T>(remote: T[], current: T[]) {
-  return remote.length > 0 ? remote : current;
-}
-
 function resolveSettings(remoteSettings: Settings | null, currentSettings: Settings): Settings {
   const localFirebaseConfig = loadLocalFirebaseConfig();
   const activeFirebaseConfig = getActiveFirebaseConfig();
@@ -215,28 +201,6 @@ function resolveSettings(remoteSettings: Settings | null, currentSettings: Setti
     ...remoteSettings,
     firebaseConfig: localFirebaseConfig ?? remoteSettings?.firebaseConfig ?? activeFirebaseConfig ?? currentSettings.firebaseConfig
   };
-}
-
-function persistFirestoreSnapshot(state: CrmState, setToast: (message: string) => void) {
-  const jobs = [
-    ...state.leads.map(saveLeadToFirestore),
-    ...state.leadGroups.map(saveGroupToFirestore),
-    ...state.templates.map(saveTemplateToFirestore),
-    ...state.campaigns.map(saveCampaignToFirestore),
-    ...state.assets.map(saveAssetToFirestore),
-    ...state.tasks.map(saveTaskToFirestore),
-    ...state.demos.map(saveDemoToFirestore),
-    ...state.doNotContact.map(saveDNCToFirestore),
-    ...state.messages.map(saveMessageToFirestore)
-  ];
-
-  if (jobs.length === 0) return;
-
-  Promise.allSettled(jobs).then((results) => {
-    const failed = results.find((result) => result.status === "rejected");
-    if (!failed || failed.status !== "rejected") return;
-    setToast(`Cambios guardados en copia local, pero Firestore fallo: ${failed.reason instanceof Error ? failed.reason.message : "revisa Firebase"}.`);
-  });
 }
 
 type PersistableEntity = { id: string };
@@ -286,7 +250,7 @@ export function useCrmStore() {
       try {
         const firebaseApp = await ensureFirebaseConfigured(state.settings.firebaseConfig);
         if (!firebaseApp) {
-          setToast("Firebase no esta configurado. Mantengo la copia local y no borro leads.");
+          setToast("Firebase no esta configurado. Por favor configura tu Firebase.");
           return;
         }
         const [
@@ -316,31 +280,24 @@ export function useCrmStore() {
         setState((current) => {
           const next = normalizeLoadedState({
             ...current,
-            leads: remoteOrCurrent(remoteLeads, current.leads),
-            leadGroups: remoteOrCurrent(remoteGroups, current.leadGroups),
-            templates: remoteOrCurrent(remoteTemplates, current.templates),
-            campaigns: remoteOrCurrent(remoteCampaigns, current.campaigns),
-            assets: remoteOrCurrent(remoteAssets, current.assets),
-            tasks: remoteOrCurrent(remoteTasks, current.tasks),
-            demos: remoteOrCurrent(remoteDemos, current.demos),
-            doNotContact: remoteOrCurrent(remoteDNC, current.doNotContact),
+            leads: remoteLeads,
+            leadGroups: remoteGroups,
+            templates: remoteTemplates,
+            campaigns: remoteCampaigns,
+            assets: remoteAssets,
+            tasks: remoteTasks,
+            demos: remoteDemos,
+            doNotContact: remoteDNC,
             settings: resolveSettings(remoteSettings, current.settings),
-            messages: remoteOrCurrent(remoteMessages, current.messages)
+            messages: remoteMessages
           });
           persistLocalState(next);
-          if (remoteLeads.length === 0 && next.leads.length > 0) {
-            persistFirestoreSnapshot(next, setToast);
-          }
           return next;
         });
         
-        setToast(
-          remoteLeads.length === 0
-            ? "Firestore no devolvio leads. Mantengo la copia local para no perder contactos."
-            : "Datos sincronizados con Firestore."
-        );
+        setToast("Datos sincronizados con Firestore.");
       } catch (error) {
-        setToast(`Error al sincronizar con Firestore. Mantengo la copia local: ${error instanceof Error ? error.message : "Desconocido"}`);
+        setToast(`Error al sincronizar con Firestore: ${error instanceof Error ? error.message : "Desconocido"}`);
       }
   }
 

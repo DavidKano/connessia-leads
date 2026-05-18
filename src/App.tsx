@@ -412,16 +412,35 @@ export default function App() {
           users={state.users}
           onClose={() => setSchedulingDemo(null)}
           onSave={(demo) => {
-            store.upsertDemo(demo);
+            const demoExists = state.demos.some((item) => item.id === demo.id);
+            const demoToSave = demoExists
+              ? demo
+              : { ...demo, id: demo.id || crypto.randomUUID(), createdAt: demo.createdAt || new Date().toISOString() };
+            const nextDemos = demoExists
+              ? state.demos.map((item) => (item.id === demo.id ? demoToSave : item))
+              : [demoToSave, ...state.demos];
+
             const lead = state.leads.find((l) => l.id === demo.leadId);
+            let nextLeads = state.leads;
             if (lead) {
-              store.upsertLead({
+              const updatedLead = {
                 ...lead,
-                estado: "demo_agendada",
+                estado: "demo_agendada" as const,
                 proximaAccion: "Demo agendada",
                 updatedAt: new Date().toISOString()
-              });
+              };
+              nextLeads = state.leads.map((l) => (l.id === lead.id ? updatedLead : l));
             }
+
+            store.updateState(
+              {
+                ...state,
+                demos: nextDemos,
+                leads: nextLeads
+              },
+              "Demo agendada y registrada."
+            );
+
             setSchedulingDemo(null);
           }}
         />
