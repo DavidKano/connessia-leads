@@ -454,3 +454,51 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
     notice: "Respuesta ambigua: se creó una tarea de revisión manual."
   };
 }
+
+export function enqueueSpecificCampaignStep(
+  state: EngineState,
+  leadId: string,
+  stepNumber: number,
+  campaignId?: string
+): EngineResult {
+  const lead = state.leads.find((item) => item.id === leadId);
+  if (!lead) return { state, notice: "Lead no encontrado." };
+  const campaign = campaignId
+    ? state.campaigns.find((item) => item.id === campaignId)
+    : state.campaigns[0];
+  const now = new Date().toISOString();
+  const blockReason = canSendToLead(lead, state.doNotContact);
+  if (blockReason) {
+    return { state, notice: `No se puede preparar el mensaje: ${blockReason}` };
+  }
+
+  const steps = campaignSteps(campaign);
+  const targetStep = steps.find((s) => s.step === stepNumber);
+
+  if (!targetStep) {
+    return { state, notice: `Mensaje ${stepNumber} no está configurado en esta campaña.` };
+  }
+
+  const followup = buildStepQueueItem(state, lead, campaign, targetStep, now);
+  if (!followup) {
+    return { state, notice: `El mensaje ${stepNumber} ya está preparado o enviado.` };
+  }
+
+  return {
+    state: {
+      ...state,
+      leads: state.leads.map((item) =>
+        item.id === leadId
+          ? {
+              ...item,
+              proximaAccion: `Enviar mensaje ${stepNumber}`,
+              updatedAt: now
+            }
+          : item
+      ),
+      queue: [...state.queue, followup]
+    },
+    notice: `Mensaje ${stepNumber} preparado para enviar por WhatsApp Web.`
+  };
+}
+

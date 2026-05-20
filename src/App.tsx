@@ -30,7 +30,7 @@ import { Button } from "./components/ui/Button";
 import { Card } from "./components/ui/Card";
 import { Modal } from "./components/ui/Modal";
 import { StatCard } from "./components/ui/StatCard";
-import { canSendToLead, enqueueCampaign, enqueuePositiveFollowup, handleIncomingReply, processQueue } from "./services/campaignEngine";
+import { canSendToLead, enqueueCampaign, enqueuePositiveFollowup, enqueueSpecificCampaignStep, handleIncomingReply, processQueue } from "./services/campaignEngine";
 import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { uploadCommercialAsset } from "./services/storageAssets";
@@ -1716,6 +1716,37 @@ function CampaignsScreen({
     );
   }
 
+  function handlePrepareSpecificStep(stepNumber: number, leadId?: string) {
+    const targetLeadId = leadId ?? selectedConversation?.lead.id;
+    if (!targetLeadId) return;
+    const result = enqueueSpecificCampaignStep(state, targetLeadId, stepNumber, campaign?.id);
+    let nextState = result.state as typeof state;
+    const followup = nextState.queue.find(
+      (candidate) =>
+        candidate.leadId === targetLeadId &&
+        candidate.campaignId === campaign?.id &&
+        candidate.campaignStep === stepNumber &&
+        candidate.status === "pending"
+    );
+
+    if (followup) {
+      openWhatsAppWebComposer(followup.phone, queueComposerBody(followup));
+      nextState = {
+        ...nextState,
+        queue: nextState.queue.map((candidate) =>
+          candidate.id === followup.id
+            ? { ...candidate, status: "processing" as const, errorMessage: `Mensaje ${stepNumber} abierto en WhatsApp Web.`.trim() }
+            : candidate
+        )
+      };
+    }
+
+    updateState(
+      nextState,
+      followup ? `Mensaje ${stepNumber} abierto en WhatsApp Web.` : result.notice
+    );
+  }
+
   function classifyCompletedLead(lead: Lead, outcome: ContactedLeadOutcome) {
     const now = new Date().toISOString();
     const nextLead: Lead = {
@@ -2184,6 +2215,19 @@ function CampaignsScreen({
                           <Button variant="secondary" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "SI")}>Respuesta SI</Button>
                           <Button variant="secondary" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "NO", false)}>Respuesta NO</Button>
                           <Button variant="danger" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "BAJA", false)}>BAJA</Button>
+                          {campaignConfiguredSteps(campaign).includes(3) &&
+                            !selectedConversation.queue.some((item) => item.campaignStep === 3 && ["pending", "processing", "sent"].includes(item.status)) && (
+                              <Button icon={<Send size={16} />} onClick={() => handlePrepareSpecificStep(3)}>
+                                Preparar Mensaje 3
+                              </Button>
+                          )}
+                          {campaignConfiguredSteps(campaign).includes(4) &&
+                            !selectedConversation.queue.some((item) => item.campaignStep === 4 && ["pending", "processing", "sent"].includes(item.status)) &&
+                            (!campaignConfiguredSteps(campaign).includes(3) || selectedConversation.queue.some((item) => item.campaignStep === 3 && ["sent"].includes(item.status))) && (
+                              <Button icon={<Send size={16} />} onClick={() => handlePrepareSpecificStep(4)}>
+                                Preparar Mensaje 4
+                              </Button>
+                          )}
                         </>
                       )}
                       {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && selectedConversation.latestSent && selectedNextCampaignStep && (
@@ -2374,6 +2418,19 @@ function CampaignsScreen({
                         <Button variant="secondary" onClick={() => registerQueueReply(conversation.latestSent as QueueItem, "SI")}>Respuesta SI</Button>
                         <Button variant="secondary" onClick={() => registerQueueReply(conversation.latestSent as QueueItem, "NO", false)}>Respuesta NO</Button>
                         <Button variant="danger" onClick={() => registerQueueReply(conversation.latestSent as QueueItem, "BAJA", false)}>BAJA</Button>
+                        {campaignConfiguredSteps(campaign).includes(3) &&
+                          !conversation.queue.some((item) => item.campaignStep === 3 && ["pending", "processing", "sent"].includes(item.status)) && (
+                            <Button icon={<Send size={16} />} onClick={() => handlePrepareSpecificStep(3, conversation.lead.id)}>
+                              Preparar Mensaje 3
+                            </Button>
+                        )}
+                        {campaignConfiguredSteps(campaign).includes(4) &&
+                          !conversation.queue.some((item) => item.campaignStep === 4 && ["pending", "processing", "sent"].includes(item.status)) &&
+                          (!campaignConfiguredSteps(campaign).includes(3) || conversation.queue.some((item) => item.campaignStep === 3 && ["sent"].includes(item.status))) && (
+                            <Button icon={<Send size={16} />} onClick={() => handlePrepareSpecificStep(4, conversation.lead.id)}>
+                              Preparar Mensaje 4
+                            </Button>
+                        )}
                       </>
                     )}
                     {conversation.lastInbound && (
