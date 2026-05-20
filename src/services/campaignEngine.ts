@@ -139,7 +139,11 @@ function nextCampaignStepItem(
 export function canSendToLead(lead: Lead, doNotContact: DoNotContact[]) {
   const phone = normalizePhone(lead.telefono);
   if (!lead.tieneConsentimientoWhatsapp) return "No tiene consentimiento WhatsApp registrado.";
-  if (lead.estado === "baja" || lead.estado === "bloqueado") return "El lead está en baja o bloqueado.";
+  if (lead.contactadoCerradoAt) return "El lead ya esta terminado por comercial.";
+  if (lead.contactadoResultado) return "El lead ya esta en la bandeja comercial.";
+  if (["baja", "bloqueado", "no_interesado", "convertido"].includes(lead.estado)) {
+    return "El lead esta cerrado, bloqueado, convertido o marcado como no interesado.";
+  }
   if (!isValidInternationalPhone(phone)) return "El teléfono no tiene formato internacional válido.";
   if (doNotContact.some((entry) => normalizePhone(entry.phone) === phone || entry.email?.toLowerCase() === lead.email.toLowerCase())) {
     return "El lead está en la lista de exclusión.";

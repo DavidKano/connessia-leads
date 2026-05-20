@@ -246,15 +246,7 @@ export default function App() {
     return <AuthScreen />;
   }
 
-  const campaignTouchedLeadIds = new Set([
-    ...state.queue.map((item) => item.leadId),
-    ...state.messages
-      .filter((message) => message.direction === "outbound")
-      .map((message) => message.leadId)
-  ]);
-  const visibleLeads = state.leads.filter(
-    (lead) => !lead.contactadoResultado && !lead.contactadoCerradoAt && !campaignTouchedLeadIds.has(lead.id)
-  );
+  const visibleLeads = state.leads.filter((lead) => !lead.contactadoCerradoAt);
 
   const selectedLead = selectedLeadId ? state.leads.find((lead) => lead.id === selectedLeadId) : null;
 
@@ -274,7 +266,7 @@ export default function App() {
               setFbUser(null);
             }}
           />
-          <main className="mx-auto max-w-7xl px-4 py-6 lg:px-6">
+          <main className={`mx-auto px-4 py-6 lg:px-6 ${page === "campanas" ? "max-w-none" : "max-w-7xl"}`}>
             <Toast text={store.toast} />
             {page === "dashboard" && <Dashboard metrics={metrics} state={state} leads={visibleLeads} setPage={setPage} />}
             {page === "leads" && (
@@ -1297,6 +1289,7 @@ function conversationStatusLabel(status: string) {
     pendiente_envio: "pendiente envio",
     chat_abierto: "chat abierto",
     esperando_respuesta: "esperando respuesta",
+    sin_respuesta: "no contesta",
     respondio_si: "respondio SI",
     respondio_no: "respondio NO",
     respondido: "respondido",
@@ -1426,7 +1419,9 @@ function CampaignsScreen({
           : pending?.status === "pending"
             ? "pendiente_envio"
             : latestSent || lastOutbound
-              ? "esperando_respuesta"
+              ? lead.estado === "sin_respuesta"
+                ? "sin_respuesta"
+                : "esperando_respuesta"
               : failed
                 ? "revisar"
                 : blockedReason
@@ -1443,11 +1438,12 @@ function CampaignsScreen({
         pendiente_envio: 1,
         esperando_respuesta: 2,
         respondio_si: 3,
-        respondido: 4,
-        respondio_no: 5,
-        revisar: 6,
-        bloqueado: 7,
-        sin_preparar: 8
+        sin_respuesta: 4,
+        respondido: 5,
+        respondio_no: 6,
+        revisar: 7,
+        bloqueado: 8,
+        sin_preparar: 9
       };
       return rank[a.status] - rank[b.status] || a.lead.nombreNegocio.localeCompare(b.lead.nombreNegocio);
     });
@@ -1747,6 +1743,81 @@ function CampaignsScreen({
     );
   }
 
+  function prepareNoReplyMessage(leadId?: string) {
+    if (!campaign) return;
+    const conversation = leadId
+      ? allConversations.find((item) => item.lead.id === leadId)
+      : selectedConversation;
+    if (!conversation) return;
+    if (conversation.pending) {
+      updateState(state, "Ese lead ya tiene un mensaje pendiente o abierto.");
+      return;
+    }
+    if (conversation.lastInbound) {
+      updateState(state, "Ese lead ya tiene una respuesta registrada.");
+      return;
+    }
+    if (!conversation.latestSent) {
+      updateState(state, "Primero envia el mensaje inicial antes de marcar no contesta.");
+      return;
+    }
+
+    const template = campaign.plantillaSeguimientoId
+      ? state.templates.find((item) => item.id === campaign.plantillaSeguimientoId)
+      : undefined;
+    if (!template || template.estado !== "aprobada") {
+      updateState(state, "Selecciona una plantilla de seguimiento aprobada para el mensaje de no contesta.");
+      return;
+    }
+
+    const preparedFollowups = conversation.queue.filter(
+      (item) => item.templateId === template.id && ["pending", "processing", "sent"].includes(item.status)
+    ).length;
+    if (preparedFollowups >= campaign.maxSeguimientos) {
+      updateState(state, `Ya se alcanzo el limite de ${campaign.maxSeguimientos} seguimiento(s) sin respuesta para este lead.`);
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const noReplyItem: QueueItem = {
+      id: `queue-${crypto.randomUUID()}`,
+      leadId: conversation.lead.id,
+      campaignId: campaign.id,
+      phone: conversation.latestSent.phone || normalizePhone(conversation.lead.telefono),
+      messageType: "template",
+      templateId: template.id,
+      body: renderTemplate(template, conversation.lead, state.settings),
+      status: "processing",
+      scheduledAt: now,
+      retries: 0
+    };
+
+    openWhatsAppWebComposer(noReplyItem.phone, queueComposerBody(noReplyItem));
+    updateState(
+      {
+        ...state,
+        queue: [
+          ...state.queue,
+          {
+            ...noReplyItem,
+            errorMessage: "Mensaje de no contesta abierto en WhatsApp Web. Confirma el envio manualmente."
+          }
+        ],
+        leads: state.leads.map((lead) =>
+          lead.id === conversation.lead.id
+            ? {
+                ...lead,
+                estado: "sin_respuesta",
+                proximaAccion: "Enviar mensaje de no contesta",
+                updatedAt: now
+              }
+            : lead
+        )
+      },
+      `Mensaje de no contesta abierto para ${conversation.lead.nombreNegocio}.`
+    );
+  }
+
   function classifyCompletedLead(lead: Lead, outcome: ContactedLeadOutcome) {
     const now = new Date().toISOString();
     const nextLead: Lead = {
@@ -1903,8 +1974,8 @@ function CampaignsScreen({
   return (
     <div className="space-y-5">
       <ScreenHeader title="Campañas" subtitle="Constructor sencillo con checklist legal, segmentación y cola de envíos." />
-      <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="self-start rounded-lg border border-slate-200 bg-white p-2">
+      <div className={campaignTab === "chats" ? "grid gap-5" : "grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]"}>
+        <aside className={campaignTab === "chats" ? "flex w-full max-w-md gap-2 rounded-lg border border-slate-200 bg-white p-2" : "self-start rounded-lg border border-slate-200 bg-white p-2"}>
           <button
             type="button"
             onClick={() => setCampaignTab("campaigns")}
@@ -1918,7 +1989,7 @@ function CampaignsScreen({
           <button
             type="button"
             onClick={() => setCampaignTab("chats")}
-            className={`mt-1 flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold transition ${
+            className={`${campaignTab === "chats" ? "" : "mt-1"} flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold transition ${
               campaignTab === "chats" ? "bg-connessia-50 text-connessia-900" : "text-slate-600 hover:bg-slate-50"
             }`}
           >
@@ -2003,7 +2074,7 @@ function CampaignsScreen({
         </Card>
         )}
         {campaignTab === "chats" && (
-        <Card className="overflow-hidden">
+        <Card className="flex h-[calc(100vh-150px)] min-h-[620px] flex-col overflow-hidden">
           <div className="border-b border-slate-200 p-5">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
               <div>
@@ -2035,13 +2106,13 @@ function CampaignsScreen({
               </div>
             )}
           </div>
-          <div className="grid min-h-[680px] lg:grid-cols-[320px_minmax(0,1fr)]">
-          <div className="border-b border-slate-200 bg-white lg:border-b-0 lg:border-r">
+          <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="flex min-h-0 flex-col border-b border-slate-200 bg-white lg:border-b-0 lg:border-r">
             <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
               <p className="text-xs font-bold uppercase text-slate-500">Chats activos</p>
               <span className="text-xs font-semibold text-slate-400">{conversations.length} activo(s)</span>
             </div>
-            <div className="space-y-2 px-4 py-3">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
               {conversations.map((conversation) => {
                 const isSelected = selectedConversation?.lead.id === conversation.lead.id;
                 const lastText = conversation.lastInbound
@@ -2110,7 +2181,7 @@ function CampaignsScreen({
               )}
             </div>
             {closedConversations.length > 0 && (
-              <div className="border-t border-slate-200 bg-white px-5 py-3">
+              <div className="max-h-48 shrink-0 overflow-y-auto border-t border-slate-200 bg-white px-5 py-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="text-xs font-bold uppercase text-slate-500">Terminados</p>
                   <button
@@ -2142,7 +2213,7 @@ function CampaignsScreen({
               </div>
             )}
           </div>
-          <div className="flex min-h-[680px] flex-col bg-[#efe7dc]">
+          <div className="flex min-h-0 flex-col bg-[#efe7dc]">
               {selectedConversation ? (
                 <>
                   <div className="border-b border-slate-200 bg-white px-5 py-4">
@@ -2214,6 +2285,15 @@ function CampaignsScreen({
                         <>
                           <Button variant="secondary" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "SI")}>Respuesta SI</Button>
                           <Button variant="secondary" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "NO", false)}>Respuesta NO</Button>
+                          <Button variant="secondary" onClick={() => prepareNoReplyMessage()}>
+                            No contesta
+                          </Button>
+                          <Button variant="secondary" onClick={() => classifyCompletedLead(selectedConversation.lead, "dudoso_comercial")}>
+                            Dudoso
+                          </Button>
+                          <Button onClick={() => classifyCompletedLead(selectedConversation.lead, "interesado_comercial")}>
+                            Interesado
+                          </Button>
                           <Button variant="danger" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "BAJA", false)}>BAJA</Button>
                           {campaignConfiguredSteps(campaign).includes(3) &&
                             !selectedConversation.queue.some((item) => item.campaignStep === 3 && ["pending", "processing", "sent"].includes(item.status)) && (
@@ -2231,9 +2311,17 @@ function CampaignsScreen({
                         </>
                       )}
                       {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && selectedConversation.latestSent && selectedNextCampaignStep && (
-                        <Button icon={<Send size={16} />} onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "SI")}>
-                          Preparar mensaje {selectedNextCampaignStep}
-                        </Button>
+                        <>
+                          <Button icon={<Send size={16} />} onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "SI")}>
+                            Preparar mensaje {selectedNextCampaignStep}
+                          </Button>
+                          <Button variant="secondary" onClick={() => classifyCompletedLead(selectedConversation.lead, "dudoso_comercial")}>
+                            Dudoso
+                          </Button>
+                          <Button onClick={() => classifyCompletedLead(selectedConversation.lead, "interesado_comercial")}>
+                            Interesado
+                          </Button>
+                        </>
                       )}
                       {selectedConversation.lastInbound && selectedConversation.status === "respondio_si" && !selectedConversation.pending && !selectedNextCampaignStep && (
                         <span className="inline-flex min-h-10 items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
