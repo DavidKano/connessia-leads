@@ -138,6 +138,7 @@ function nextCampaignStepItem(
 
 export function canSendToLead(lead: Lead, doNotContact: DoNotContact[]) {
   const phone = normalizePhone(lead.telefono);
+  const email = lead.email.trim().toLowerCase();
   if (!lead.tieneConsentimientoWhatsapp) return "No tiene consentimiento WhatsApp registrado.";
   if (lead.contactadoCerradoAt) return "El lead ya esta terminado por comercial.";
   if (lead.contactadoResultado) return "El lead ya esta en la bandeja comercial.";
@@ -145,7 +146,12 @@ export function canSendToLead(lead: Lead, doNotContact: DoNotContact[]) {
     return "El lead esta cerrado, bloqueado, convertido o marcado como no interesado.";
   }
   if (!isValidInternationalPhone(phone)) return "El teléfono no tiene formato internacional válido.";
-  if (doNotContact.some((entry) => normalizePhone(entry.phone) === phone || entry.email?.toLowerCase() === lead.email.toLowerCase())) {
+  if (
+    doNotContact.some((entry) => {
+      const entryEmail = entry.email?.trim().toLowerCase();
+      return normalizePhone(entry.phone) === phone || Boolean(email && entryEmail && entryEmail === email);
+    })
+  ) {
     return "El lead está en la lista de exclusión.";
   }
   return null;
@@ -384,7 +390,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
             {
               id: uid("dnc"),
               phone: normalizePhone(lead.telefono),
-              email: lead.email,
+              email: lead.email.trim() || undefined,
               reason: `Respuesta: ${body}`,
               source: "respuesta_whatsapp",
               createdAt: now

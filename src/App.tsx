@@ -1289,6 +1289,8 @@ function conversationStatusLabel(status: string) {
     pendiente_envio: "pendiente envio",
     chat_abierto: "chat abierto",
     esperando_respuesta: "esperando respuesta",
+    primer_mensaje: "primer mensaje",
+    segundo_mensaje: "segundo mensaje",
     sin_respuesta: "no contesta",
     respondio_si: "respondio SI",
     respondio_no: "respondio NO",
@@ -1311,6 +1313,10 @@ function formatFollowupDelay(campaign: Campaign) {
 
 function queueComposerBody(item: QueueItem) {
   return item.body;
+}
+
+function isNoReplyQueueItem(item: QueueItem, campaign?: Campaign) {
+  return item.campaignStep === 2 || Boolean(campaign?.plantillaSeguimientoId && item.templateId === campaign.plantillaSeguimientoId);
 }
 
 function campaignConfiguredSteps(campaign?: Campaign) {
@@ -1408,6 +1414,24 @@ function CampaignsScreen({
       const lastOutbound = [...whatsappMessages].reverse().find((message) => message.direction === "outbound");
       const blockedReason = canSendToLead(lead, state.doNotContact);
       const failed = [...leadQueue].reverse().find((item) => item.status === "failed" || item.status === "cancelled");
+      const latestNoReplySent = [...leadQueue].reverse().find((item) => item.status === "sent" && isNoReplyQueueItem(item, campaign));
+      const noReplyPending = pending && isNoReplyQueueItem(pending, campaign) ? pending : undefined;
+      const legacySecondMessage =
+        Boolean(latestSent || lastOutbound) &&
+        !latestNoReplySent &&
+        !pending &&
+        !lastInbound &&
+        lead.estado === "campaña_enviada" &&
+        lead.proximaAccion === "Esperar respuesta";
+      const chatStep = noReplyPending
+        ? "second_pending"
+        : latestNoReplySent || legacySecondMessage || lead.estado === "sin_respuesta"
+          ? "second_sent"
+          : latestSent || lastOutbound
+            ? "first_sent"
+            : pending
+              ? "pending"
+              : "empty";
       const status = lastInbound
         ? lead.estado === "interesado"
           ? "respondio_si"
@@ -1419,15 +1443,15 @@ function CampaignsScreen({
           : pending?.status === "pending"
             ? "pendiente_envio"
             : latestSent || lastOutbound
-              ? lead.estado === "sin_respuesta"
-                ? "sin_respuesta"
-                : "esperando_respuesta"
+              ? chatStep === "second_sent"
+                ? "segundo_mensaje"
+                : "primer_mensaje"
               : failed
                 ? "revisar"
                 : blockedReason
                   ? "bloqueado"
                   : "sin_preparar";
-      return { lead, queue: leadQueue, messages: leadMessages, whatsappMessages, internalNotes, latestSent, pending, lastInbound, lastOutbound, blockedReason, failed, status, isClosed, isArchived };
+      return { lead, queue: leadQueue, messages: leadMessages, whatsappMessages, internalNotes, latestSent, latestNoReplySent, pending, noReplyPending, lastInbound, lastOutbound, blockedReason, failed, status, chatStep, isClosed, isArchived };
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
   const conversations = allConversations
@@ -1436,7 +1460,8 @@ function CampaignsScreen({
       const rank: Record<string, number> = {
         chat_abierto: 0,
         pendiente_envio: 1,
-        esperando_respuesta: 2,
+        primer_mensaje: 2,
+        segundo_mensaje: 3,
         respondio_si: 3,
         sin_respuesta: 4,
         respondido: 5,
@@ -1461,7 +1486,7 @@ function CampaignsScreen({
     return rank[a.status] - rank[b.status] || a.scheduledAt.localeCompare(b.scheduledAt);
   });
   const respondedCount = conversations.filter((item) => item.lastInbound).length;
-  const waitingCount = conversations.filter((item) => item.status === "esperando_respuesta").length;
+  const waitingCount = conversations.filter((item) => item.status === "primer_mensaje" || item.status === "segundo_mensaje").length;
   const blockedCount = conversations.filter((item) => item.status === "bloqueado" || item.status === "revisar").length;
   const selectedConversation = conversations.find((item) => item.lead.id === selectedChatId) ?? conversations[0];
   const selectedTimeline = selectedConversation
@@ -1631,6 +1656,7 @@ function CampaignsScreen({
       );
     }
 
+    const sentNoReply = isNoReplyQueueItem(item, campaign);
     updateState(
       {
         ...state,
@@ -1654,7 +1680,13 @@ function CampaignsScreen({
             ],
         leads: state.leads.map((lead) =>
           lead.id === item.leadId
-            ? { ...lead, ultimoContacto: sentAt, proximaAccion: "Esperar respuesta", updatedAt: sentAt }
+            ? {
+                ...lead,
+                estado: sentNoReply ? "sin_respuesta" : lead.estado,
+                ultimoContacto: sentAt,
+                proximaAccion: sentNoReply ? "Segundo mensaje cri cri enviado" : "Primer mensaje enviado",
+                updatedAt: sentAt
+              }
             : lead
         )
       },
@@ -1789,7 +1821,8 @@ function CampaignsScreen({
       body: renderTemplate(template, conversation.lead, state.settings),
       status: "processing",
       scheduledAt: now,
-      retries: 0
+      retries: 0,
+      campaignStep: 2
     };
 
     openWhatsAppWebComposer(noReplyItem.phone, queueComposerBody(noReplyItem));
@@ -1808,7 +1841,7 @@ function CampaignsScreen({
             ? {
                 ...lead,
                 estado: "sin_respuesta",
-                proximaAccion: "Enviar mensaje de no contesta",
+                proximaAccion: "Enviar segundo mensaje cri cri",
                 updatedAt: now
               }
             : lead
@@ -1816,6 +1849,110 @@ function CampaignsScreen({
       },
       `Mensaje de no contesta abierto para ${conversation.lead.nombreNegocio}.`
     );
+  }
+
+  function registerCampaignReply(lead: Lead, reply: "SI" | "BAJA") {
+    if (!campaign) return;
+    const now = new Date().toISOString();
+    const inboundMessage = {
+      id: `msg-${crypto.randomUUID()}`,
+      leadId: lead.id,
+      campaignId: campaign.id,
+      direction: "inbound" as const,
+      channel: "whatsapp" as const,
+      body: reply,
+      status: "received",
+      createdAt: now
+    };
+
+    if (reply === "SI") {
+      updateState(
+        {
+          ...state,
+          messages: [...state.messages, inboundMessage],
+          queue: state.queue.filter(
+            (item) => !(item.leadId === lead.id && item.campaignId === campaign.id && (item.status === "pending" || item.status === "processing"))
+          ),
+          leads: state.leads.map((item) =>
+            item.id === lead.id
+              ? {
+                  ...item,
+                  estado: "interesado",
+                  contactadoResultado: "interesado_comercial",
+                  contactadoAt: now,
+                  contactadoCampaignId: campaign.id,
+                  contactadoBy: state.currentUser.uid,
+                  campaignChatClosedAt: now,
+                  campaignChatClosedCampaignId: campaign.id,
+                  campaignChatArchivedAt: undefined,
+                  campaignChatArchivedBy: undefined,
+                  comercialAsignado: item.comercialAsignado || state.currentUser.uid,
+                  proximaAccion: "Comercial debe contactar",
+                  updatedAt: now
+                }
+              : item
+          )
+        },
+        "Respuesta SI registrada: lead pasado a interesados."
+      );
+      setSelectedChatId("");
+      return;
+    }
+
+    const phone = normalizePhone(lead.telefono);
+    const email = lead.email.trim();
+    const existsInDnc = state.doNotContact.some(
+      (entry) => normalizePhone(entry.phone) === phone || Boolean(email && entry.email?.trim().toLowerCase() === email.toLowerCase())
+    );
+
+    updateState(
+      {
+        ...state,
+        messages: [...state.messages, inboundMessage],
+        queue: state.queue.filter(
+          (item) => !(item.leadId === lead.id && item.campaignId === campaign.id && (item.status === "pending" || item.status === "processing"))
+        ),
+        doNotContact: existsInDnc
+          ? state.doNotContact
+          : [
+              ...state.doNotContact,
+              {
+                id: `dnc-${crypto.randomUUID()}`,
+                phone,
+                email: email || undefined,
+                reason: "Respuesta BAJA en campana",
+                source: "campana_whatsapp",
+                createdAt: now
+              }
+            ],
+        leads: state.leads.map((item) =>
+          item.id === lead.id
+            ? {
+                ...item,
+                estado: "baja",
+                fechaBaja: now,
+                motivoBaja: "Respuesta BAJA",
+                contactadoResultado: "no_interesa",
+                contactadoAt: now,
+                contactadoCampaignId: campaign.id,
+                contactadoBy: state.currentUser.uid,
+                contactadoCierre: "baja",
+                contactadoCerradoAt: now,
+                contactadoCerradoBy: state.currentUser.uid,
+                contactadoCierreNotas: "No volver a contactar",
+                campaignChatClosedAt: now,
+                campaignChatClosedCampaignId: campaign.id,
+                campaignChatArchivedAt: undefined,
+                campaignChatArchivedBy: undefined,
+                proximaAccion: "No contactar",
+                updatedAt: now
+              }
+            : item
+        )
+      },
+      "Respuesta BAJA registrada: solo este lead se ha dado de baja."
+    );
+    setSelectedChatId("");
   }
 
   function classifyCompletedLead(lead: Lead, outcome: ContactedLeadOutcome) {
@@ -2281,32 +2418,32 @@ function CampaignsScreen({
                           </Button>
                         </>
                       )}
-                      {!selectedConversation.pending && selectedConversation.latestSent && !selectedConversation.lastInbound && (
+                      {!selectedConversation.pending && (selectedConversation.latestSent || selectedConversation.lastOutbound) && !selectedConversation.lastInbound && (
                         <>
-                          <Button variant="secondary" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "SI")}>Respuesta SI</Button>
-                          <Button variant="secondary" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "NO", false)}>Respuesta NO</Button>
-                          <Button variant="secondary" onClick={() => prepareNoReplyMessage()}>
-                            No contesta
-                          </Button>
-                          <Button variant="secondary" onClick={() => classifyCompletedLead(selectedConversation.lead, "dudoso_comercial")}>
-                            Dudoso
-                          </Button>
-                          <Button onClick={() => classifyCompletedLead(selectedConversation.lead, "interesado_comercial")}>
-                            Interesado
-                          </Button>
-                          <Button variant="danger" onClick={() => registerQueueReply(selectedConversation.latestSent as QueueItem, "BAJA", false)}>BAJA</Button>
-                          {campaignConfiguredSteps(campaign).includes(3) &&
-                            !selectedConversation.queue.some((item) => item.campaignStep === 3 && ["pending", "processing", "sent"].includes(item.status)) && (
-                              <Button icon={<Send size={16} />} onClick={() => handlePrepareSpecificStep(3)}>
-                                Preparar Mensaje 3
+                          {selectedConversation.chatStep === "second_sent" ? (
+                            <>
+                              <Button variant="secondary" onClick={() => classifyCompletedLead(selectedConversation.lead, "dudoso_comercial")}>
+                                No contesta, pasar a dudoso
                               </Button>
-                          )}
-                          {campaignConfiguredSteps(campaign).includes(4) &&
-                            !selectedConversation.queue.some((item) => item.campaignStep === 4 && ["pending", "processing", "sent"].includes(item.status)) &&
-                            (!campaignConfiguredSteps(campaign).includes(3) || selectedConversation.queue.some((item) => item.campaignStep === 3 && ["sent"].includes(item.status))) && (
-                              <Button icon={<Send size={16} />} onClick={() => handlePrepareSpecificStep(4)}>
-                                Preparar Mensaje 4
+                              <Button onClick={() => registerCampaignReply(selectedConversation.lead, "SI")}>
+                                Dice SI, interesado
                               </Button>
+                              <Button variant="danger" onClick={() => registerCampaignReply(selectedConversation.lead, "BAJA")}>
+                                Dice NO / BAJA
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button variant="secondary" onClick={() => prepareNoReplyMessage()}>
+                                No contesta, enviar cri cri
+                              </Button>
+                              <Button onClick={() => registerCampaignReply(selectedConversation.lead, "SI")}>
+                                Contesta SI
+                              </Button>
+                              <Button variant="danger" onClick={() => registerCampaignReply(selectedConversation.lead, "BAJA")}>
+                                Contesta NO / BAJA
+                              </Button>
+                            </>
                           )}
                         </>
                       )}

@@ -23,6 +23,8 @@ const statusColors: Record<string, string> = {
   "pendiente envio": "bg-slate-100 text-slate-700",
   "chat abierto": "bg-blue-100 text-blue-800",
   "esperando respuesta": "bg-amber-100 text-amber-800",
+  "primer mensaje": "bg-amber-100 text-amber-800",
+  "segundo mensaje": "bg-orange-100 text-orange-800",
   "no contesta": "bg-orange-100 text-orange-800",
   "respondio SI": "bg-emerald-100 text-emerald-800",
   "respondio NO": "bg-red-100 text-red-800",
