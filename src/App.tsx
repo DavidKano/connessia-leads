@@ -1782,22 +1782,46 @@ function CampaignsScreen({
       : selectedConversation;
     if (!conversation) return;
     if (conversation.pending) {
+      alert("Ese lead ya tiene un mensaje pendiente o abierto.");
       updateState(state, "Ese lead ya tiene un mensaje pendiente o abierto.");
       return;
     }
     if (conversation.lastInbound) {
+      alert("Ese lead ya tiene una respuesta registrada.");
       updateState(state, "Ese lead ya tiene una respuesta registrada.");
       return;
     }
-    if (!conversation.latestSent) {
+    
+    const latestSentOrOutbound = conversation.latestSent || conversation.lastOutbound;
+    if (!latestSentOrOutbound) {
+      alert("Primero envía el mensaje inicial antes de marcar no contesta.");
       updateState(state, "Primero envia el mensaje inicial antes de marcar no contesta.");
       return;
     }
 
-    const template = campaign.plantillaSeguimientoId
+    let template = campaign.plantillaSeguimientoId
       ? state.templates.find((item) => item.id === campaign.plantillaSeguimientoId)
       : undefined;
+
+    // Fallback 1: Buscar plantilla del Mensaje 3 en mensajesPostSi de la campaña
+    if (!template) {
+      const step3 = (campaign.mensajesPostSi ?? []).find((s) => s.step === 3);
+      if (step3?.templateId) {
+        template = state.templates.find((item) => item.id === step3.templateId);
+      }
+    }
+
+    // Fallback 2: Buscar cualquier plantilla aprobada en el sistema que tenga 'cri cri' en el nombre
+    if (!template) {
+      template = state.templates.find(
+        (item) =>
+          item.estado === "aprobada" &&
+          item.nombre.toLowerCase().includes("cri cri")
+      );
+    }
+
     if (!template || template.estado !== "aprobada") {
+      alert("Selecciona una plantilla de seguimiento aprobada en la campaña para el mensaje de no contesta.");
       updateState(state, "Selecciona una plantilla de seguimiento aprobada para el mensaje de no contesta.");
       return;
     }
@@ -1806,6 +1830,7 @@ function CampaignsScreen({
       (item) => item.templateId === template.id && ["pending", "processing", "sent"].includes(item.status)
     ).length;
     if (preparedFollowups >= campaign.maxSeguimientos) {
+      alert(`Ya se alcanzó el límite de ${campaign.maxSeguimientos} seguimiento(s) sin respuesta para este lead.`);
       updateState(state, `Ya se alcanzo el limite de ${campaign.maxSeguimientos} seguimiento(s) sin respuesta para este lead.`);
       return;
     }
@@ -1815,7 +1840,7 @@ function CampaignsScreen({
       id: `queue-${crypto.randomUUID()}`,
       leadId: conversation.lead.id,
       campaignId: campaign.id,
-      phone: conversation.latestSent.phone || normalizePhone(conversation.lead.telefono),
+      phone: conversation.latestSent?.phone || normalizePhone(conversation.lead.telefono),
       messageType: "template",
       templateId: template.id,
       body: renderTemplate(template, conversation.lead, state.settings),
