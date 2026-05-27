@@ -266,7 +266,7 @@ export default function App() {
               setFbUser(null);
             }}
           />
-          <main className={`mx-auto px-4 py-6 lg:px-6 ${page === "campanas" ? "max-w-none" : "max-w-7xl"}`}>
+          <main className="w-full px-4 py-6 lg:px-6">
             <Toast text={store.toast} />
             {page === "dashboard" && <Dashboard metrics={metrics} state={state} leads={visibleLeads} setPage={setPage} />}
             {page === "leads" && (
