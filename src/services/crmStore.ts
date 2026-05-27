@@ -27,7 +27,8 @@ import type {
   QueueItem,
   Settings,
   Task,
-  UserRole
+  UserRole,
+  LeadObservation
 } from "../types/domain";
 import { 
   deleteLeadFromFirestore, 
@@ -60,7 +61,10 @@ import {
   deleteMessageFromFirestore,
   loadQueueFromFirestore,
   saveQueueItemToFirestore,
-  deleteQueueItemFromFirestore
+  deleteQueueItemFromFirestore,
+  deleteObservationFromFirestore,
+  loadObservationsFromFirestore,
+  saveObservationToFirestore
 } from "./firestoreStore";
 import { configureFirebase, ensureFirebaseConfigured, getActiveFirebaseConfig } from "./firebase";
 import { normalizePhone } from "../utils/formatters";
@@ -79,6 +83,7 @@ export interface CrmState {
   demos: Demo[];
   assets: CommercialAsset[];
   settings: Settings;
+  observations: LeadObservation[];
 }
 
 const storageKey = "connessia-leads-demo-state";
@@ -98,7 +103,8 @@ const initialState: CrmState = {
   tasks: [],
   demos: [],
   assets: [],
-  settings: demoSettings
+  settings: demoSettings,
+  observations: []
 };
 
 function loadState(): CrmState {
@@ -146,7 +152,8 @@ function normalizeLoadedState(state: CrmState): CrmState {
   return {
     ...state,
     leads: state.leads.map((lead) => ({ ...lead, grupoIds: lead.grupoIds ?? [] })),
-    campaigns: state.campaigns.map(normalizeCampaign)
+    campaigns: state.campaigns.map(normalizeCampaign),
+    observations: state.observations ?? []
   };
 }
 
@@ -248,6 +255,7 @@ function persistChangedFirestoreState(previous: CrmState, next: CrmState, setToa
     ...persistChangedEntities(previous.doNotContact, next.doNotContact, saveDNCToFirestore),
     ...persistChangedEntities(previous.messages, next.messages, saveMessageToFirestore),
     ...persistChangedEntities(previous.queue, next.queue, saveQueueItemToFirestore),
+    ...persistChangedEntities(previous.observations, next.observations, saveObservationToFirestore),
 
     // Deletions
     ...persistDeletedEntities(previous.leads, next.leads, deleteLeadFromFirestore),
@@ -258,7 +266,8 @@ function persistChangedFirestoreState(previous: CrmState, next: CrmState, setToa
     ...persistDeletedEntities(previous.tasks, next.tasks, deleteTaskFromFirestore),
     ...persistDeletedEntities(previous.demos, next.demos, deleteDemoFromFirestore),
     ...persistDeletedEntities(previous.messages, next.messages, deleteMessageFromFirestore),
-    ...persistDeletedEntities(previous.queue, next.queue, deleteQueueItemFromFirestore)
+    ...persistDeletedEntities(previous.queue, next.queue, deleteQueueItemFromFirestore),
+    ...persistDeletedEntities(previous.observations, next.observations, deleteObservationFromFirestore)
   ];
 
   if (jobs.length === 0) return;
@@ -292,7 +301,8 @@ export function useCrmStore() {
           remoteDNC, 
           remoteSettings,
           remoteMessages,
-          remoteQueue
+          remoteQueue,
+          remoteObservations
         ] = await Promise.all([
           loadLeadsFromFirestore(),
           loadGroupsFromFirestore(),
@@ -304,7 +314,8 @@ export function useCrmStore() {
           loadDNCFromFirestore(),
           loadSettingsFromFirestore(),
           loadMessagesFromFirestore(),
-          loadQueueFromFirestore()
+          loadQueueFromFirestore(),
+          loadObservationsFromFirestore()
         ]);
 
         setState((current) => {
@@ -320,7 +331,8 @@ export function useCrmStore() {
             doNotContact: remoteDNC,
             settings: resolveSettings(remoteSettings, current.settings),
             messages: remoteMessages,
-            queue: remoteQueue ?? []
+            queue: remoteQueue ?? [],
+            observations: remoteObservations ?? []
           });
           persistLocalState(next);
           return next;
@@ -660,6 +672,26 @@ export function useCrmStore() {
     });
   }
 
+  function upsertObservation(observation: LeadObservation) {
+    const exists = state.observations.some((item) => item.id === observation.id);
+    const observationToSave = exists
+      ? observation
+      : { ...observation, id: observation.id || crypto.randomUUID(), createdAt: observation.createdAt || new Date().toISOString() };
+
+    updateState(
+      {
+        ...state,
+        observations: exists
+          ? state.observations.map((item) => (item.id === observation.id ? observationToSave : item))
+          : [observationToSave, ...state.observations]
+      },
+      exists ? "Observación actualizada." : "Observación registrada."
+    );
+    saveObservationToFirestore(observationToSave).catch((error) => {
+      setToast(`Observación guardada localmente, pero Firestore fallo: ${error instanceof Error ? error.message : "revisa Firebase"}.`);
+    });
+  }
+
   return {
     state,
     metrics,
@@ -686,7 +718,8 @@ export function useCrmStore() {
     upsertTask,
     deleteTask,
     upsertDemo,
-    deleteDemo
+    deleteDemo,
+    upsertObservation
   };
 }
 

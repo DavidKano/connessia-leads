@@ -39,7 +39,7 @@ import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
-import type { AppUser, Campaign, CommercialAsset, ContactedLeadCloseStatus, ContactedLeadOutcome, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole } from "./types/domain";
+import type { AppUser, Campaign, CommercialAsset, ContactedLeadCloseStatus, ContactedLeadOutcome, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole, LeadObservation } from "./types/domain";
 import { formatDate, formatDateTime, normalizePhone, percent, renderTemplate } from "./utils/formatters";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from "firebase/auth";
 import { auth, ensureFirebaseConfigured } from "./services/firebase";
@@ -318,7 +318,21 @@ export default function App() {
               <InProgressLeadsScreen
                 state={state}
                 onSave={store.upsertLead}
-                onSelect={setSelectedLeadId}
+                onSaveObservation={store.upsertObservation}
+                onScheduleDemo={(lead) => {
+                  setSchedulingDemo({
+                    id: crypto.randomUUID(),
+                    leadId: lead.id,
+                    date: new Date().toISOString().slice(0, 10),
+                    time: "10:00",
+                    assignedTo: lead.comercialAsignado || state.currentUser.uid,
+                    status: "programada",
+                    notes: "",
+                    meetingUrl: "",
+                    result: "",
+                    createdAt: new Date().toISOString()
+                  });
+                }}
                 query={inProgressQuery}
                 setQuery={setInProgressQuery}
                 sortKey={inProgressSortKey}
@@ -4030,10 +4044,375 @@ function MultiSelectDropdown({
   );
 }
 
+interface InProgressLeadEditSheetProps {
+  lead: Lead;
+  users: AppUser[];
+  observations: LeadObservation[];
+  onSaveLead: (lead: Lead) => void;
+  onSaveObservation: (obs: LeadObservation) => void;
+  onScheduleDemo: () => void;
+  onClose: () => void;
+}
+
+function InProgressLeadEditSheet({
+  lead,
+  users,
+  observations,
+  onSaveLead,
+  onSaveObservation,
+  onScheduleDemo,
+  onClose
+}: InProgressLeadEditSheetProps) {
+  const [editForm, setEditForm] = useState<Lead>({ ...lead });
+  const [newObs, setNewObs] = useState("");
+  const [viewingObs, setViewingObs] = useState<LeadObservation | null>(null);
+
+  const leadObservations = observations
+    .filter((o) => o.leadId === lead.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const handleSaveLead = () => {
+    onSaveLead(editForm);
+    onClose();
+  };
+
+  const handleSaveObservation = () => {
+    if (!newObs.trim()) return;
+    const observation: LeadObservation = {
+      id: crypto.randomUUID(),
+      leadId: lead.id,
+      texto: newObs.trim(),
+      createdAt: new Date().toISOString()
+    };
+    onSaveObservation(observation);
+    setNewObs("");
+  };
+
+  const handleScheduleDemo = () => {
+    onSaveLead(editForm);
+    onScheduleDemo();
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-fade-in">
+      <div className="flex h-[90vh] w-full max-w-6xl flex-col rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-slide-up">
+        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Editar Ficha Comercial: {lead.nombreNegocio}</h2>
+            <p className="text-xs text-slate-500">ID del Lead: {lead.id}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 border-b border-slate-100 pb-1">Datos de la Ficha</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Nombre Negocio</label>
+                <input
+                  className={inputClass}
+                  value={editForm.nombreNegocio}
+                  onChange={(e) => setEditForm({ ...editForm, nombreNegocio: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Persona Contacto</label>
+                <input
+                  className={inputClass}
+                  value={editForm.personaContacto}
+                  onChange={(e) => setEditForm({ ...editForm, personaContacto: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Teléfono</label>
+                <input
+                  className={inputClass}
+                  value={editForm.telefono}
+                  onChange={(e) => setEditForm({ ...editForm, telefono: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Email</label>
+                <input
+                  className={inputClass}
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">CIF</label>
+                <input
+                  className={inputClass}
+                  placeholder="Introducir CIF..."
+                  value={editForm.cif || ""}
+                  onChange={(e) => setEditForm({ ...editForm, cif: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Dirección</label>
+                <input
+                  className={inputClass}
+                  value={editForm.direccion}
+                  onChange={(e) => setEditForm({ ...editForm, direccion: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Código Postal</label>
+                <input
+                  className={inputClass}
+                  placeholder="Código postal..."
+                  value={editForm.codigoPostal || ""}
+                  onChange={(e) => setEditForm({ ...editForm, codigoPostal: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Ciudad</label>
+                <input
+                  className={inputClass}
+                  value={editForm.ciudad}
+                  onChange={(e) => setEditForm({ ...editForm, ciudad: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Zona</label>
+                <input
+                  className={inputClass}
+                  value={editForm.zona}
+                  onChange={(e) => setEditForm({ ...editForm, zona: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Sector</label>
+                <input
+                  className={inputClass}
+                  value={editForm.sector}
+                  onChange={(e) => setEditForm({ ...editForm, sector: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Sitio Web</label>
+                <input
+                  className={inputClass}
+                  value={editForm.web}
+                  onChange={(e) => setEditForm({ ...editForm, web: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Comercial Asignado</label>
+                <select
+                  className={inputClass}
+                  value={editForm.comercialAsignado}
+                  onChange={(e) => setEditForm({ ...editForm, comercialAsignado: e.target.value })}
+                >
+                  {users.map((u) => (
+                    <option key={u.uid} value={u.uid}>
+                      {u.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Estado</label>
+                <select
+                  className={inputClass}
+                  value={editForm.estado}
+                  onChange={(e) => setEditForm({ ...editForm, estado: e.target.value as any })}
+                >
+                  <option value="nuevo">Nuevo</option>
+                  <option value="pendiente_consentimiento">Pendiente consentimiento</option>
+                  <option value="consentimiento_obtenido">Consentimiento obtenido</option>
+                  <option value="campaña_enviada">En campaña</option>
+                  <option value="sin_respuesta">Sin respuesta</option>
+                  <option value="interesado">Interesado</option>
+                  <option value="no_interesado">No interesa</option>
+                  <option value="demo_agendada">Demo agendada</option>
+                  <option value="convertido">Convertido</option>
+                  <option value="baja">Baja</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Seguimiento</label>
+                <select
+                  className={inputClass}
+                  value={editForm.seguimiento || "pendiente"}
+                  onChange={(e) => setEditForm({ ...editForm, seguimiento: e.target.value as any })}
+                >
+                  <option value="pendiente">Pendiente</option>
+                  <option value="en_curso">En curso</option>
+                  <option value="finalizado">Finalizado</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-6">
+                <input
+                  type="checkbox"
+                  id="sheetConsentCheckbox"
+                  className="h-5 w-5 rounded border-slate-300 text-connessia-600 focus:ring-connessia-500 cursor-pointer"
+                  checked={editForm.tieneConsentimientoWhatsapp}
+                  onChange={(e) => setEditForm({ ...editForm, tieneConsentimientoWhatsapp: e.target.checked })}
+                />
+                <label htmlFor="sheetConsentCheckbox" className="text-sm font-semibold text-slate-700 cursor-pointer select-none">
+                  Consentimiento de WhatsApp
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Notas Generales</label>
+              <textarea
+                className={`${inputClass} h-20 resize-none`}
+                placeholder="Añadir notas sobre este lead..."
+                value={editForm.notas || ""}
+                onChange={(e) => setEditForm({ ...editForm, notas: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 border-b border-slate-100 pb-1">Historial de Observaciones</h3>
+            <div className="space-y-4">
+              <div className="flex gap-3">
+                <textarea
+                  className={`${inputClass} h-16 resize-none flex-1`}
+                  placeholder="Escribir una nueva observación comercial..."
+                  value={newObs}
+                  onChange={(e) => setNewObs(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveObservation}
+                  className="rounded-lg bg-connessia-600 px-5 text-sm font-bold text-white hover:bg-connessia-700 active:scale-95 transition focus:outline-none shrink-0"
+                >
+                  Guardar Observación
+                </button>
+              </div>
+
+              <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
+                    <tr className="border-b border-slate-200">
+                      <th className="px-4 py-2 font-bold w-1/4">Fecha</th>
+                      <th className="px-4 py-2 font-bold w-3/4">Detalle de la Observación (Pinchar para ver completa)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {leadObservations.map((obs) => (
+                      <tr key={obs.id} className="hover:bg-slate-50 transition">
+                        <td className="px-4 py-2 text-xs font-semibold text-slate-500 whitespace-nowrap">
+                          {formatDateTime(obs.createdAt)}
+                        </td>
+                        <td className="px-4 py-2">
+                          <p
+                            onClick={() => setViewingObs(obs)}
+                            className="max-w-xl truncate text-slate-700 font-medium cursor-pointer hover:text-connessia-700 transition"
+                            title="Haz clic para ver la observación completa"
+                          >
+                            {obs.texto}
+                          </p>
+                        </td>
+                      </tr>
+                    ))}
+                    {leadObservations.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="px-4 py-6 text-center text-slate-400 font-medium">
+                          No hay observaciones registradas para este lead.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-4">
+          <button
+            type="button"
+            onClick={handleScheduleDemo}
+            className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-100 transition"
+          >
+            <CalendarClock size={16} />
+            Agendar Demo
+          </button>
+          
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveLead}
+              className="rounded-lg bg-connessia-600 px-5 py-2 text-sm font-bold text-white hover:bg-connessia-700 transition"
+            >
+              Guardar y Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {viewingObs && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4 animate-fade-in">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl animate-scale-up border border-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                Observación Registrada ({formatDateTime(viewingObs.createdAt)})
+              </h4>
+              <button
+                onClick={() => setViewingObs(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+            <div className="max-h-80 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-medium bg-slate-50 p-4 rounded-lg border border-slate-100">
+              {viewingObs.texto}
+            </div>
+            <div className="mt-5 text-right">
+              <button
+                type="button"
+                onClick={() => setViewingObs(null)}
+                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-900 transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InProgressLeadsScreen({
   state,
   onSave,
-  onSelect,
+  onSaveObservation,
+  onScheduleDemo,
   query,
   setQuery,
   sortKey,
@@ -4047,7 +4426,8 @@ function InProgressLeadsScreen({
 }: {
   state: ReturnType<typeof useCrmStore>["state"];
   onSave: (lead: Lead) => void;
-  onSelect: (id: string) => void;
+  onSaveObservation: (obs: LeadObservation) => void;
+  onScheduleDemo: (lead: Lead) => void;
   query: string;
   setQuery: (val: string) => void;
   sortKey: string;
@@ -4059,12 +4439,14 @@ function InProgressLeadsScreen({
   selectedSeguimientos: string[];
   setSelectedSeguimientos: (val: string[]) => void;
 }) {
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
+
   const inProgressLeads = state.leads.filter((lead) => {
     const inActiveCampaign = lead.estado === "campaña_enviada" || lead.estado === "sin_respuesta";
     const isDudoso = lead.contactadoResultado === "dudoso_comercial";
     const isInteresado = lead.contactadoResultado === "interesado_comercial" || lead.estado === "interesado";
     const isNoInteresa = lead.contactadoResultado === "no_interesa" || lead.estado === "no_interesado";
-    return (inActiveCampaign || isDudoso || isInteresado || isNoInteresa) && !lead.contactadoCerradoAt;
+    return (inActiveCampaign || isDudoso || isInteresado || isNoInteresa) && !lead.contactadoCerradoAt && lead.estado !== "demo_agendada";
   });
 
   const filtered = inProgressLeads.filter((lead) => {
@@ -4246,7 +4628,7 @@ function InProgressLeadsScreen({
                   <td className="px-5 py-3">
                     <button
                       className="rounded-md border border-slate-200 bg-white p-2 text-slate-500 hover:border-connessia-200 hover:bg-connessia-50 hover:text-connessia-700"
-                      onClick={() => onSelect(lead.id)}
+                      onClick={() => setEditingLead(lead)}
                       title="Ver ficha / Abrir chat"
                     >
                       <Edit3 size={15} />
@@ -4291,6 +4673,21 @@ function InProgressLeadsScreen({
           </table>
         </div>
       </Card>
+
+      {editingLead && (
+        <InProgressLeadEditSheet
+          lead={editingLead}
+          users={state.users}
+          observations={state.observations}
+          onSaveLead={(updatedLead) => {
+            onSave(updatedLead);
+            setEditingLead(null);
+          }}
+          onSaveObservation={onSaveObservation}
+          onScheduleDemo={() => onScheduleDemo(editingLead)}
+          onClose={() => setEditingLead(null)}
+        />
+      )}
     </div>
   );
 }

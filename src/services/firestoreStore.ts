@@ -11,7 +11,8 @@ import type {
   DoNotContact,
   Settings,
   Message,
-  QueueItem
+  QueueItem,
+  LeadObservation
 } from "../types/domain";
 
 // Generic collection names
@@ -26,7 +27,8 @@ const COLLECTIONS = {
   DNC: "doNotContact",
   SETTINGS: "settings",
   MESSAGES: "messages",
-  QUEUE: "campaignQueue"
+  QUEUE: "campaignQueue",
+  OBSERVATIONS: "observaciones"
 };
 
 async function getAll<T>(collectionName: string): Promise<T[]> {
@@ -122,4 +124,10 @@ export const deleteMessageFromFirestore = (messageId: string) => deleteOne(COLLE
 export const loadQueueFromFirestore = () => getAll<QueueItem>(COLLECTIONS.QUEUE);
 export const saveQueueItemToFirestore = (item: QueueItem) => saveOne(COLLECTIONS.QUEUE, item.id, item);
 export const deleteQueueItemFromFirestore = (itemId: string) => deleteOne(COLLECTIONS.QUEUE, itemId);
+
+// Observations
+export const loadObservationsFromFirestore = () => getAll<LeadObservation>(COLLECTIONS.OBSERVATIONS);
+export const saveObservationToFirestore = (observation: LeadObservation) => saveOne(COLLECTIONS.OBSERVATIONS, observation.id, observation);
+export const deleteObservationFromFirestore = (observationId: string) => deleteOne(COLLECTIONS.OBSERVATIONS, observationId);
+
 

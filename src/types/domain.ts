@@ -98,9 +98,18 @@ export interface Lead {
   campaignChatArchivedAt?: string;
   campaignChatArchivedBy?: string;
   seguimiento?: "pendiente" | "en_curso" | "finalizado";
+  cif?: string;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface LeadObservation {
+  id: string;
+  leadId: string;
+  texto: string;
+  createdAt: string;
+}
+
 
 export interface LeadGroup {
   id: string;
