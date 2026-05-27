@@ -57,24 +57,26 @@ export function Sidebar({ page, setPage }: { page: PageId; setPage: (page: PageI
         </div>
       </div>
       <nav className="space-y-1">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setPage(item.id)}
-              className={clsx(
-                "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold transition",
-                page === item.id
-                  ? "bg-connessia-50 text-connessia-800"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
-              )}
-            >
-              <Icon size={18} />
-              {item.label}
-            </button>
-          );
-        })}
+        {navItems
+          .filter((item) => !["assets", "metricas", "tutorial", "auditoria", "simulador"].includes(item.id))
+          .map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setPage(item.id)}
+                className={clsx(
+                  "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold transition",
+                  page === item.id
+                    ? "bg-connessia-50 text-connessia-800"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                )}
+              >
+                <Icon size={18} />
+                {item.label}
+              </button>
+            );
+          })}
       </nav>
       <div className="mt-6 rounded-lg border border-connessia-200 bg-connessia-50 p-3 text-sm text-connessia-900">
         Modo WhatsApp Web: la app prepara mensajes y el envío se confirma manualmente.

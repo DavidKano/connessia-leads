@@ -387,18 +387,20 @@ export default function App() {
               </Button>
             </div>
             <div className="grid gap-1">
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  className="rounded-md px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                  onClick={() => {
-                    setPage(item.id);
-                    setMobileMenu(false);
-                  }}
-                >
-                  {item.label}
-                </button>
-              ))}
+              {navItems
+                .filter((item) => !["assets", "metricas", "tutorial", "auditoria", "simulador"].includes(item.id))
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    className="rounded-md px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    onClick={() => {
+                      setPage(item.id);
+                      setMobileMenu(false);
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
             </div>
           </div>
         </div>
