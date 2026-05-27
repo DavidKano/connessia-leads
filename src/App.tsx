@@ -737,7 +737,6 @@ function LeadsScreen({
     const text = `${lead.nombreNegocio} ${lead.personaContacto} ${lead.telefono} ${lead.email} ${lead.zona} ${lead.codigoPostal ?? ""} ${groupNames}`.toLowerCase();
     
     const matchConsent = consent === "" || (consent === "si" ? lead.tieneConsentimientoWhatsapp : !lead.tieneConsentimientoWhatsapp);
-    const matchCommercial = commercial === "" || lead.comercialAsignado === commercial;
 
     return (
       text.includes(query.toLowerCase()) &&
@@ -745,8 +744,7 @@ function LeadsScreen({
       (!sector || lead.sector === sector) &&
       (!city || lead.ciudad === city) &&
       (!groupId || lead.grupoIds.includes(groupId)) &&
-      matchConsent &&
-      matchCommercial
+      matchConsent
     );
   });
 
@@ -824,14 +822,10 @@ function LeadsScreen({
       </Card>
       <Card className="p-4">
         <div className="grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
-          <label className="relative col-span-2 md:col-span-1">
+          <label className="relative col-span-2 xl:col-span-2">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
             <input className={`${inputClass} pl-10`} placeholder="Buscar..." value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
-          <select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="">Estados</option>
-            {Array.from(new Set(leads.map((lead) => lead.estado))).map((item) => <option key={item}>{item}</option>)}
-          </select>
           <select className={inputClass} value={sector} onChange={(event) => setSector(event.target.value)}>
             <option value="">Sectores</option>
             {Array.from(new Set(leads.map((lead) => lead.sector).filter(Boolean))).map((item) => <option key={item}>{item}</option>)}
@@ -849,12 +843,11 @@ function LeadsScreen({
             <option value="si">Sí</option>
             <option value="no">No</option>
           </select>
-          <select className={inputClass} value={commercial} onChange={(event) => setCommercial(event.target.value)}>
-            <option value="">Comerciales</option>
-            {Array.from(new Set(leads.map((lead) => lead.comercialAsignado).filter(Boolean))).map((item) => {
-              const u = users.find(u => u.uid === item);
-              return <option key={item} value={item}>{u?.nombre ?? item}</option>;
-            })}
+          <select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}>
+            <option value="">Estados</option>
+            {Array.from(new Set(leads.map((lead) => lead.estado))).map((item) => (
+              <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
+            ))}
           </select>
         </div>
       </Card>
