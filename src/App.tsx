@@ -1,8 +1,12 @@
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   BarChart3,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
   Database,
   Edit3,
@@ -21,7 +25,7 @@ import {
   Upload,
   Users
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { Sidebar, navItems, type PageId } from "./components/layout/Sidebar";
 import { Topbar } from "./components/layout/Topbar";
 import { LeadFinderScreen } from "./components/screens/LeadFinderScreen";
@@ -39,7 +43,7 @@ import type { AppUser, Campaign, CommercialAsset, ContactedLeadCloseStatus, Cont
 import { formatDate, formatDateTime, normalizePhone, percent, renderTemplate } from "./utils/formatters";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from "firebase/auth";
 import { auth, ensureFirebaseConfigured } from "./services/firebase";
-import { useEffect } from "react";
+
 
 const inputClass =
   "w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-connessia-500 focus:ring-2 focus:ring-connessia-100";
@@ -186,6 +190,13 @@ export default function App() {
   const [identityOpen, setIdentityOpen] = useState(false);
   const [schedulingDemo, setSchedulingDemo] = useState<Demo | null>(null);
 
+  // States for Leads en curso screen (preserved during screen navigation)
+  const [inProgressQuery, setInProgressQuery] = useState("");
+  const [inProgressSortKey, setInProgressSortKey] = useState("nombre");
+  const [inProgressSortDir, setInProgressSortDir] = useState<"asc" | "desc">("asc");
+  const [inProgressStates, setInProgressStates] = useState<string[]>([]);
+  const [inProgressSeguimientos, setInProgressSeguimientos] = useState<string[]>([]);
+
   useEffect(() => {
     let cancelled = false;
     let unsubscribe: (() => void) | undefined;
@@ -301,6 +312,23 @@ export default function App() {
                     createdAt: new Date().toISOString()
                   });
                 }}
+              />
+            )}
+            {page === "en_curso" && (
+              <InProgressLeadsScreen
+                state={state}
+                onSave={store.upsertLead}
+                onSelect={setSelectedLeadId}
+                query={inProgressQuery}
+                setQuery={setInProgressQuery}
+                sortKey={inProgressSortKey}
+                setSortKey={setInProgressSortKey}
+                sortDir={inProgressSortDir}
+                setSortDir={setInProgressSortDir}
+                selectedStates={inProgressStates}
+                setSelectedStates={setInProgressStates}
+                selectedSeguimientos={inProgressSeguimientos}
+                setSelectedSeguimientos={setInProgressSeguimientos}
               />
             )}
             {page === "terminados" && (
@@ -3894,6 +3922,375 @@ function Info({ label, value }: { label: string; value: string | number }) {
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
       <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
       <p className="mt-1 break-words text-sm font-semibold text-slate-900">{value || "Sin dato"}</p>
+    </div>
+  );
+}
+
+function getLeadStateLabel(lead: Lead) {
+  if (lead.contactadoResultado === "interesado_comercial") return "Interesado";
+  if (lead.contactadoResultado === "dudoso_comercial") return "Dudoso";
+  if (lead.contactadoResultado === "no_interesa") return "No interesa";
+  if (lead.estado === "campaña_enviada") return "En campaña";
+  if (lead.estado === "sin_respuesta") return "Sin respuesta";
+  if (lead.estado === "interesado") return "Interesado";
+  if (lead.estado === "no_interesado") return "No interesa";
+  return String(lead.estado).replaceAll("_", " ");
+}
+
+function getLeadStateValue(lead: Lead) {
+  if (lead.contactadoResultado === "interesado_comercial") return "interesado";
+  if (lead.contactadoResultado === "dudoso_comercial") return "dudoso";
+  if (lead.contactadoResultado === "no_interesa") return "no_interesa";
+  if (lead.estado === "campaña_enviada") return "campaña_enviada";
+  if (lead.estado === "sin_respuesta") return "sin_respuesta";
+  if (lead.estado === "interesado") return "interesado";
+  if (lead.estado === "no_interesado") return "no_interesa";
+  return lead.estado;
+}
+
+function MultiSelectDropdown({
+  label,
+  options,
+  selectedValues,
+  onChange
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selectedValues: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleValue = (val: string) => {
+    if (selectedValues.includes(val)) {
+      onChange(selectedValues.filter((v) => v !== val));
+    } else {
+      onChange([...selectedValues, val]);
+    }
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`${inputClass} flex items-center justify-between gap-2 bg-white`}
+      >
+        <span className="truncate">
+          {selectedValues.length === 0
+            ? label
+            : `${label} (${selectedValues.length})`}
+        </span>
+        <ChevronDown size={16} className="text-slate-500 shrink-0" />
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 left-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+          {options.map((opt) => {
+            const isChecked = selectedValues.includes(opt.value);
+            return (
+              <label
+                key={opt.value}
+                className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-connessia-600 focus:ring-connessia-500"
+                  checked={isChecked}
+                  onChange={() => toggleValue(opt.value)}
+                />
+                <span className="ml-2 font-medium text-slate-700">{opt.label}</span>
+              </label>
+            );
+          })}
+          {selectedValues.length > 0 && (
+            <div className="mt-2 border-t border-slate-100 pt-2 text-right">
+              <button
+                type="button"
+                onClick={() => onChange([])}
+                className="text-xs font-bold text-coral-600 hover:text-coral-800"
+              >
+                Limpiar filtros
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InProgressLeadsScreen({
+  state,
+  onSave,
+  onSelect,
+  query,
+  setQuery,
+  sortKey,
+  setSortKey,
+  sortDir,
+  setSortDir,
+  selectedStates,
+  setSelectedStates,
+  selectedSeguimientos,
+  setSelectedSeguimientos
+}: {
+  state: ReturnType<typeof useCrmStore>["state"];
+  onSave: (lead: Lead) => void;
+  onSelect: (id: string) => void;
+  query: string;
+  setQuery: (val: string) => void;
+  sortKey: string;
+  setSortKey: (val: string) => void;
+  sortDir: "asc" | "desc";
+  setSortDir: (val: "asc" | "desc") => void;
+  selectedStates: string[];
+  setSelectedStates: (val: string[]) => void;
+  selectedSeguimientos: string[];
+  setSelectedSeguimientos: (val: string[]) => void;
+}) {
+  const inProgressLeads = state.leads.filter((lead) => {
+    const inActiveCampaign = lead.estado === "campaña_enviada" || lead.estado === "sin_respuesta";
+    const isDudoso = lead.contactadoResultado === "dudoso_comercial";
+    const isInteresado = lead.contactadoResultado === "interesado_comercial" || lead.estado === "interesado";
+    const isNoInteresa = lead.contactadoResultado === "no_interesa" || lead.estado === "no_interesado";
+    return (inActiveCampaign || isDudoso || isInteresado || isNoInteresa) && !lead.contactadoCerradoAt;
+  });
+
+  const filtered = inProgressLeads.filter((lead) => {
+    const text = `${lead.nombreNegocio} ${lead.telefono} ${lead.ciudad} ${lead.zona}`.toLowerCase();
+    const matchesQuery = text.includes(query.toLowerCase());
+
+    const stateValue = getLeadStateValue(lead);
+    const matchesState = selectedStates.length === 0 || selectedStates.includes(stateValue);
+
+    const segValue = lead.seguimiento ?? "pendiente";
+    const matchesSeguimiento = selectedSeguimientos.length === 0 || selectedSeguimientos.includes(segValue);
+
+    return matchesQuery && matchesState && matchesSeguimiento;
+  });
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const sorted = [...filtered].sort((a, b) => {
+    let valA: any = "";
+    let valB: any = "";
+
+    switch (sortKey) {
+      case "nombre":
+        valA = a.nombreNegocio;
+        valB = b.nombreNegocio;
+        break;
+      case "telefono":
+        valA = a.telefono;
+        valB = b.telefono;
+        break;
+      case "ciudad":
+        valA = a.ciudad;
+        valB = b.ciudad;
+        break;
+      case "zona":
+        valA = a.zona;
+        valB = b.zona;
+        break;
+      case "estado":
+        valA = getLeadStateLabel(a);
+        valB = getLeadStateLabel(b);
+        break;
+      case "seguimiento":
+        valA = a.seguimiento ?? "pendiente";
+        valB = b.seguimiento ?? "pendiente";
+        break;
+      default:
+        return 0;
+    }
+
+    if (typeof valA === "string") valA = valA.toLowerCase();
+    if (typeof valB === "string") valB = valB.toLowerCase();
+
+    if (valA < valB) return sortDir === "asc" ? -1 : 1;
+    if (valA > valB) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  const stateOptions = [
+    { value: "interesado", label: "Interesado" },
+    { value: "dudoso", label: "Dudoso" },
+    { value: "no_interesa", label: "No interesa" },
+    { value: "campaña_enviada", label: "En campaña" },
+    { value: "sin_respuesta", label: "Sin respuesta" }
+  ];
+
+  const segOptions = [
+    { value: "pendiente", label: "Pendiente" },
+    { value: "en_curso", label: "En curso" },
+    { value: "finalizado", label: "Finalizado" }
+  ];
+
+  const getSortIcon = (key: string) => {
+    if (sortKey !== key) return <ArrowUpDown size={14} className="text-slate-400" />;
+    return sortDir === "asc" 
+      ? <ArrowUp size={14} className="text-connessia-700" />
+      : <ArrowDown size={14} className="text-connessia-700" />;
+  };
+
+  const getSeguimientoColor = (val: string) => {
+    if (val === "en_curso") return "bg-blue-50 text-blue-800 border-blue-200";
+    if (val === "finalizado") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    return "bg-slate-50 text-slate-700 border-slate-200";
+  };
+
+  const getEstadoBadgeColor = (lead: Lead) => {
+    const val = getLeadStateValue(lead);
+    if (val === "interesado") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    if (val === "dudoso") return "bg-amber-50 text-amber-800 border-amber-200";
+    if (val === "no_interesa") return "bg-red-50 text-red-800 border-red-200";
+    if (val === "campaña_enviada") return "bg-blue-50 text-blue-800 border-blue-200";
+    return "bg-slate-50 text-slate-700 border-slate-200";
+  };
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader
+        title="Leads en curso"
+        subtitle="Bandeja de leads activos en prospección, campañas y clasificaciones comerciales."
+      />
+      <Card className="p-4">
+        <div className="grid gap-3 grid-cols-1 md:grid-cols-4 xl:grid-cols-6">
+          <label className="relative col-span-1 md:col-span-2">
+            <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+            <input
+              className={`${inputClass} pl-10`}
+              placeholder="Buscar por negocio, teléfono, ciudad o zona..."
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <MultiSelectDropdown
+            label="Filtrar Estados"
+            options={stateOptions}
+            selectedValues={selectedStates}
+            onChange={setSelectedStates}
+          />
+          <MultiSelectDropdown
+            label="Filtrar Seguimiento"
+            options={segOptions}
+            selectedValues={selectedSeguimientos}
+            onChange={setSelectedSeguimientos}
+          />
+          <div className="flex items-center justify-end col-span-1 md:col-span-2">
+            <span className="text-xs font-semibold text-slate-400">
+              {filtered.length} lead(s) en curso encontrados
+            </span>
+          </div>
+        </div>
+      </Card>
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto table-scroll">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr className="border-b border-slate-100">
+                <th className="px-5 py-3.5 font-bold">Acción</th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("nombre")}>
+                  <div className="flex items-center gap-1.5">
+                    Negocio {getSortIcon("nombre")}
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("telefono")}>
+                  <div className="flex items-center gap-1.5">
+                    Teléfono {getSortIcon("telefono")}
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("ciudad")}>
+                  <div className="flex items-center gap-1.5">
+                    Ciudad {getSortIcon("ciudad")}
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("zona")}>
+                  <div className="flex items-center gap-1.5">
+                    Zona {getSortIcon("zona")}
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("estado")}>
+                  <div className="flex items-center gap-1.5">
+                    Estado {getSortIcon("estado")}
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("seguimiento")}>
+                  <div className="flex items-center gap-1.5">
+                    Seguimiento {getSortIcon("seguimiento")}
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {sorted.map((lead) => (
+                <tr key={lead.id} className="hover:bg-slate-50/50">
+                  <td className="px-5 py-3">
+                    <button
+                      className="rounded-md border border-slate-200 bg-white p-2 text-slate-500 hover:border-connessia-200 hover:bg-connessia-50 hover:text-connessia-700"
+                      onClick={() => onSelect(lead.id)}
+                      title="Ver ficha / Abrir chat"
+                    >
+                      <Edit3 size={15} />
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 font-semibold text-slate-900">{lead.nombreNegocio}</td>
+                  <td className="px-4 py-3 font-medium text-slate-600">{lead.telefono}</td>
+                  <td className="px-4 py-3 text-slate-600">{lead.ciudad}</td>
+                  <td className="px-4 py-3 text-slate-600">{lead.zona}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getEstadoBadgeColor(lead)}`}>
+                      {getLeadStateLabel(lead)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      className={`rounded-full border px-2.5 py-1 text-xs font-semibold outline-none focus:ring-1 focus:ring-connessia-100 cursor-pointer ${getSeguimientoColor(lead.seguimiento ?? "pendiente")}`}
+                      value={lead.seguimiento ?? "pendiente"}
+                      onChange={(event) => {
+                        onSave({
+                          ...lead,
+                          seguimiento: event.target.value as any,
+                          updatedAt: new Date().toISOString()
+                        });
+                      }}
+                    >
+                      <option value="pendiente" className="bg-white text-slate-700">Pendiente</option>
+                      <option value="en_curso" className="bg-white text-blue-800">En curso</option>
+                      <option value="finalizado" className="bg-white text-emerald-800">Finalizado</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+              {sorted.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-5 py-8 text-center text-sm text-slate-500">
+                    No se encontraron leads en curso que coincidan con los criterios.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }

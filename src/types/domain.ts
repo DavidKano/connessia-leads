@@ -97,6 +97,7 @@ export interface Lead {
   campaignChatClosedCampaignId?: string;
   campaignChatArchivedAt?: string;
   campaignChatArchivedBy?: string;
+  seguimiento?: "pendiente" | "en_curso" | "finalizado";
   createdAt: string;
   updatedAt: string;
 }
