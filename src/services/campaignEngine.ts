@@ -357,7 +357,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
         ...state,
         leads: state.leads.map((item) =>
           item.id === leadId
-            ? { ...item, estado: "interesado", proximaAccion: "Contactar lead interesado", updatedAt: now }
+            ? { ...item, estado: "interesado", proximaAccion: "Contactar lead interesado", ultimoContacto: now, updatedAt: now }
             : item
         ),
         messages: [...state.messages, inbound],
@@ -410,6 +410,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
                 fechaBaja: replyKind === "unsubscribe" ? now : item.fechaBaja,
                 motivoBaja: replyKind === "unsubscribe" ? body : item.motivoBaja,
                 proximaAccion: "No contactar",
+                ultimoContacto: now,
                 updatedAt: now
               }
             : item
@@ -443,7 +444,7 @@ export function handleIncomingReply(state: EngineState, leadId: string, body: st
       messages: [...state.messages, inbound],
       leads: state.leads.map((item) =>
         item.id === leadId
-          ? { ...item, estado: "respuesta_ambigua", proximaAccion: "Revisión manual", updatedAt: now }
+          ? { ...item, estado: "respuesta_ambigua", proximaAccion: "Revisión manual", ultimoContacto: now, updatedAt: now }
           : item
       ),
       tasks: [

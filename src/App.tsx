@@ -2152,7 +2152,7 @@ function CampaignsScreen({
         ],
         leads: state.leads.map((lead) =>
           lead.id === selectedConversation.lead.id
-            ? { ...lead, updatedAt: now, proximaAccion: kind === "internal_note" ? lead.proximaAccion : "Conversacion real pegada en el chat" }
+            ? { ...lead, ultimoContacto: now, updatedAt: now, proximaAccion: kind === "internal_note" ? lead.proximaAccion : "Conversacion real pegada en el chat" }
             : lead
         )
       },
@@ -4074,7 +4074,10 @@ function InProgressLeadEditSheet({
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const handleSaveLead = () => {
-    onSaveLead(editForm);
+    onSaveLead({
+      ...editForm,
+      ultimoContacto: new Date().toISOString()
+    });
     onClose();
   };
 
@@ -4091,7 +4094,10 @@ function InProgressLeadEditSheet({
   };
 
   const handleScheduleDemo = () => {
-    onSaveLead(editForm);
+    onSaveLead({
+      ...editForm,
+      ultimoContacto: new Date().toISOString()
+    });
     onScheduleDemo();
     onClose();
   };
@@ -4502,6 +4508,10 @@ function InProgressLeadsScreen({
         valA = a.seguimiento ?? "pendiente";
         valB = b.seguimiento ?? "pendiente";
         break;
+      case "ultimoContacto":
+        valA = a.ultimoContacto || "";
+        valB = b.ultimoContacto || "";
+        break;
       default:
         return 0;
     }
@@ -4612,6 +4622,11 @@ function InProgressLeadsScreen({
                     Zona {getSortIcon("zona")}
                   </div>
                 </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("ultimoContacto")}>
+                  <div className="flex items-center gap-1.5">
+                    Último Contacto {getSortIcon("ultimoContacto")}
+                  </div>
+                </th>
                 <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("estado")}>
                   <div className="flex items-center gap-1.5">
                     Estado {getSortIcon("estado")}
@@ -4640,6 +4655,9 @@ function InProgressLeadsScreen({
                   <td className="px-4 py-3 font-medium text-slate-600">{lead.telefono}</td>
                   <td className="px-4 py-3 text-slate-600">{lead.ciudad}</td>
                   <td className="px-4 py-3 text-slate-600">{lead.zona}</td>
+                  <td className="px-4 py-3 text-xs font-semibold text-slate-500 whitespace-nowrap">
+                    {lead.ultimoContacto ? formatDateTime(lead.ultimoContacto) : "Sin contacto"}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getEstadoBadgeColor(lead)}`}>
                       {getLeadStateLabel(lead)}
@@ -4666,7 +4684,7 @@ function InProgressLeadsScreen({
               ))}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={8} className="px-5 py-8 text-center text-sm text-slate-500">
                     No se encontraron leads en curso que coincidan con los criterios.
                   </td>
                 </tr>
