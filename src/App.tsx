@@ -25,7 +25,7 @@ import {
   Upload,
   Users
 } from "lucide-react";
-import { useState, useRef, useEffect, type ReactNode } from "react";
+import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { Sidebar, navItems, type PageId } from "./components/layout/Sidebar";
 import { Topbar } from "./components/layout/Topbar";
 import { LeadFinderScreen } from "./components/screens/LeadFinderScreen";
@@ -196,6 +196,7 @@ export default function App() {
   const [inProgressSortDir, setInProgressSortDir] = useState<"asc" | "desc">("asc");
   const [inProgressStates, setInProgressStates] = useState<string[]>([]);
   const [inProgressSeguimientos, setInProgressSeguimientos] = useState<string[]>([]);
+  const [inProgressSectores, setInProgressSectores] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -343,6 +344,8 @@ export default function App() {
                 setSelectedStates={setInProgressStates}
                 selectedSeguimientos={inProgressSeguimientos}
                 setSelectedSeguimientos={setInProgressSeguimientos}
+                selectedSectores={inProgressSectores}
+                setSelectedSectores={setInProgressSectores}
               />
             )}
             {page === "terminados" && (
@@ -4430,7 +4433,9 @@ function InProgressLeadsScreen({
   selectedStates,
   setSelectedStates,
   selectedSeguimientos,
-  setSelectedSeguimientos
+  setSelectedSeguimientos,
+  selectedSectores,
+  setSelectedSectores
 }: {
   state: ReturnType<typeof useCrmStore>["state"];
   onSave: (lead: Lead) => void;
@@ -4446,6 +4451,8 @@ function InProgressLeadsScreen({
   setSelectedStates: (val: string[]) => void;
   selectedSeguimientos: string[];
   setSelectedSeguimientos: (val: string[]) => void;
+  selectedSectores: string[];
+  setSelectedSectores: (val: string[]) => void;
 }) {
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
 
@@ -4457,8 +4464,15 @@ function InProgressLeadsScreen({
     return (inActiveCampaign || isDudoso || isInteresado || isNoInteresa) && !lead.contactadoCerradoAt && lead.estado !== "demo_agendada";
   });
 
+  const uniqueSectores = useMemo(() => {
+    const sectors = state.leads.map((l) => l.sector).filter(Boolean);
+    return Array.from(new Set(sectors)).sort();
+  }, [state.leads]);
+
+  const sectorOptions = (uniqueSectores as string[]).map((sec: string) => ({ value: sec, label: sec }));
+
   const filtered = inProgressLeads.filter((lead) => {
-    const text = `${lead.nombreNegocio} ${lead.telefono} ${lead.ciudad} ${lead.zona}`.toLowerCase();
+    const text = `${lead.nombreNegocio} ${lead.telefono} ${lead.ciudad} ${lead.zona} ${lead.sector || ""}`.toLowerCase();
     const matchesQuery = text.includes(query.toLowerCase());
 
     const stateValue = getLeadStateValue(lead);
@@ -4467,7 +4481,9 @@ function InProgressLeadsScreen({
     const segValue = lead.seguimiento ?? "pendiente";
     const matchesSeguimiento = selectedSeguimientos.length === 0 || selectedSeguimientos.includes(segValue);
 
-    return matchesQuery && matchesState && matchesSeguimiento;
+    const matchesSector = selectedSectores.length === 0 || (lead.sector && selectedSectores.includes(lead.sector));
+
+    return matchesQuery && matchesState && matchesSeguimiento && matchesSector;
   });
 
   const handleSort = (key: string) => {
@@ -4511,6 +4527,10 @@ function InProgressLeadsScreen({
       case "ultimoContacto":
         valA = a.ultimoContacto || "";
         valB = b.ultimoContacto || "";
+        break;
+      case "sector":
+        valA = a.sector || "";
+        valB = b.sector || "";
         break;
       default:
         return 0;
@@ -4589,7 +4609,13 @@ function InProgressLeadsScreen({
             selectedValues={selectedSeguimientos}
             onChange={setSelectedSeguimientos}
           />
-          <div className="flex items-center justify-end col-span-1 md:col-span-2">
+          <MultiSelectDropdown
+            label="Filtrar Sectores"
+            options={sectorOptions}
+            selectedValues={selectedSectores}
+            onChange={setSelectedSectores}
+          />
+          <div className="flex items-center justify-end col-span-1">
             <span className="text-xs font-semibold text-slate-400">
               {filtered.length} lead(s) en curso encontrados
             </span>
@@ -4620,6 +4646,11 @@ function InProgressLeadsScreen({
                 <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("zona")}>
                   <div className="flex items-center gap-1.5">
                     Zona {getSortIcon("zona")}
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("sector")}>
+                  <div className="flex items-center gap-1.5">
+                    Sector {getSortIcon("sector")}
                   </div>
                 </th>
                 <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("ultimoContacto")}>
@@ -4655,6 +4686,7 @@ function InProgressLeadsScreen({
                   <td className="px-4 py-3 font-medium text-slate-600">{lead.telefono}</td>
                   <td className="px-4 py-3 text-slate-600">{lead.ciudad}</td>
                   <td className="px-4 py-3 text-slate-600">{lead.zona}</td>
+                  <td className="px-4 py-3 text-slate-600">{lead.sector}</td>
                   <td className="px-4 py-3 text-xs font-semibold text-slate-500 whitespace-nowrap">
                     {lead.ultimoContacto ? formatDateTime(lead.ultimoContacto) : "Sin contacto"}
                   </td>
@@ -4684,7 +4716,7 @@ function InProgressLeadsScreen({
               ))}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={9} className="px-5 py-8 text-center text-sm text-slate-500">
                     No se encontraron leads en curso que coincidan con los criterios.
                   </td>
                 </tr>
