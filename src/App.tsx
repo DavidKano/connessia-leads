@@ -1043,47 +1043,70 @@ function LeadFormModal({
         </label>
         <label>
           <span className="mb-1 block text-sm font-semibold text-slate-700">Estado</span>
-          <select className={inputClass} value={draft.estado} onChange={(event) => update("estado", event.target.value as Lead["estado"])}>
-            {["nuevo","pendiente_consentimiento","consentimiento_obtenido","campaña_enviada","interesado","no_interesado","demo_agendada","convertido","baja","bloqueado","error_envio","respuesta_ambigua","sin_respuesta"].map((item) => <option key={item}>{item}</option>)}
+          <select
+            className={inputClass}
+            value={getLeadStateValue(draft) ?? "nuevo"}
+            onChange={(event) => {
+              const val = event.target.value;
+              const now = new Date().toISOString();
+              if (val === "dudoso") {
+                setDraft((current) => ({
+                  ...current,
+                  estado: "interesado",
+                  contactadoResultado: "dudoso_comercial",
+                  contactadoAt: current.contactadoAt ?? now,
+                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
+                  proximaAccion: "Comercial debe contactar"
+                }));
+              } else if (val === "interesado") {
+                setDraft((current) => ({
+                  ...current,
+                  estado: "interesado",
+                  contactadoResultado: "interesado_comercial",
+                  contactadoAt: current.contactadoAt ?? now,
+                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
+                  proximaAccion: "Comercial debe contactar"
+                }));
+              } else if (val === "no_interesa") {
+                setDraft((current) => ({
+                  ...current,
+                  estado: "no_interesado",
+                  contactadoResultado: "no_interesa",
+                  contactadoAt: current.contactadoAt ?? now,
+                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
+                  proximaAccion: "No contactar salvo nueva solicitud"
+                }));
+              } else {
+                setDraft((current) => ({
+                  ...current,
+                  estado: val as any,
+                  contactadoResultado: undefined,
+                  contactadoAt: undefined,
+                  contactadoBy: undefined
+                }));
+              }
+            }}
+          >
+            <option value="nuevo">Nuevo</option>
+            <option value="pendiente_consentimiento">Pendiente consentimiento</option>
+            <option value="consentimiento_obtenido">Consentimiento obtenido</option>
+            <option value="campaña_enviada">En campaña</option>
+            <option value="sin_respuesta">Sin respuesta</option>
+            <option value="interesado">Interesado</option>
+            <option value="dudoso">Dudoso</option>
+            <option value="no_interesa">No interesa</option>
+            <option value="demo_agendada">Demo agendada</option>
+            <option value="convertido">Convertido</option>
+            <option value="baja">Baja</option>
+            <option value="bloqueado">Bloqueado</option>
+            <option value="error_envio">Error envío</option>
+            <option value="respuesta_ambigua">Respuesta ambigua</option>
           </select>
         </label>
         <label>
           <span className="mb-1 block text-sm font-semibold text-slate-700">Comercial asignado</span>
           <select className={inputClass} value={draft.comercialAsignado} onChange={(event) => update("comercialAsignado", event.target.value)}>
             {users.map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
-          </select>
-        </label>
-        <label className="md:col-span-2">
-          <span className="mb-1 block text-sm font-semibold text-slate-700">Resultado contacto comercial (Bandeja de Contactados)</span>
-          <select 
-            className={inputClass} 
-            value={draft.contactadoResultado ?? ""} 
-            onChange={(event) => {
-              const outcome = event.target.value as ContactedLeadOutcome | "";
-              if (!outcome) {
-                setDraft((current) => ({
-                  ...current,
-                  contactadoResultado: undefined,
-                  contactadoAt: undefined,
-                  contactadoBy: undefined
-                }));
-              } else {
-                const now = new Date().toISOString();
-                setDraft((current) => ({
-                  ...current,
-                  contactadoResultado: outcome,
-                  estado: outcome === "no_interesa" ? "no_interesado" : "interesado",
-                  contactadoAt: current.contactadoAt ?? now,
-                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
-                  proximaAccion: outcome === "no_interesa" ? "No contactar salvo nueva solicitud" : "Comercial debe contactar"
-                }));
-              }
-            }}
-          >
-            <option value="">-- Sin contactar / Campaña en curso --</option>
-            <option value="interesado_comercial">Interesado - paso a comercial (Aparece en Leads Contactados)</option>
-            <option value="dudoso_comercial">Dudoso - paso a comercial (Aparece en Leads Contactados)</option>
-            <option value="no_interesa">No interesa (Aparece en Leads Contactados)</option>
           </select>
         </label>
         <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 md:col-span-2">
