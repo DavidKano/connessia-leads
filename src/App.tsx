@@ -4271,6 +4271,7 @@ function InProgressLeadEditSheet({
                   <option value="pendiente">Pendiente</option>
                   <option value="en_curso">En curso</option>
                   <option value="finalizado">Finalizado</option>
+                  <option value="no_contesta">No contesta</option>
                 </select>
               </div>
 
@@ -4555,7 +4556,8 @@ function InProgressLeadsScreen({
   const segOptions = [
     { value: "pendiente", label: "Pendiente" },
     { value: "en_curso", label: "En curso" },
-    { value: "finalizado", label: "Finalizado" }
+    { value: "finalizado", label: "Finalizado" },
+    { value: "no_contesta", label: "No contesta" }
   ];
 
   const getSortIcon = (key: string) => {
@@ -4568,6 +4570,7 @@ function InProgressLeadsScreen({
   const getSeguimientoColor = (val: string) => {
     if (val === "en_curso") return "bg-blue-50 text-blue-800 border-blue-200";
     if (val === "finalizado") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    if (val === "no_contesta") return "bg-amber-50 text-amber-800 border-amber-200";
     return "bg-slate-50 text-slate-700 border-slate-200";
   };
 
@@ -4710,6 +4713,7 @@ function InProgressLeadsScreen({
                       <option value="pendiente" className="bg-white text-slate-700">Pendiente</option>
                       <option value="en_curso" className="bg-white text-blue-800">En curso</option>
                       <option value="finalizado" className="bg-white text-emerald-800">Finalizado</option>
+                      <option value="no_contesta" className="bg-white text-amber-800">No contesta</option>
                     </select>
                   </td>
                 </tr>
