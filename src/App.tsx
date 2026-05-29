@@ -4245,8 +4245,47 @@ function InProgressLeadEditSheet({
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Estado</label>
                 <select
                   className={inputClass}
-                  value={editForm.estado}
-                  onChange={(e) => setEditForm({ ...editForm, estado: e.target.value as any })}
+                  value={getLeadStateValue(editForm) ?? "nuevo"}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "dudoso") {
+                      setEditForm({
+                        ...editForm,
+                        estado: "interesado",
+                        contactadoResultado: "dudoso_comercial"
+                      });
+                    } else if (val === "interesado") {
+                      setEditForm({
+                        ...editForm,
+                        estado: "interesado",
+                        contactadoResultado: "interesado_comercial"
+                      });
+                    } else if (val === "no_interesa") {
+                      setEditForm({
+                        ...editForm,
+                        estado: "no_interesado",
+                        contactadoResultado: "no_interesa"
+                      });
+                    } else if (val === "campaña_enviada") {
+                      setEditForm({
+                        ...editForm,
+                        estado: "campaña_enviada",
+                        contactadoResultado: undefined
+                      });
+                    } else if (val === "sin_respuesta") {
+                      setEditForm({
+                        ...editForm,
+                        estado: "sin_respuesta",
+                        contactadoResultado: undefined
+                      });
+                    } else {
+                      setEditForm({
+                        ...editForm,
+                        estado: val as any,
+                        contactadoResultado: undefined
+                      });
+                    }
+                  }}
                 >
                   <option value="nuevo">Nuevo</option>
                   <option value="pendiente_consentimiento">Pendiente consentimiento</option>
@@ -4254,7 +4293,8 @@ function InProgressLeadEditSheet({
                   <option value="campaña_enviada">En campaña</option>
                   <option value="sin_respuesta">Sin respuesta</option>
                   <option value="interesado">Interesado</option>
-                  <option value="no_interesado">No interesa</option>
+                  <option value="dudoso">Dudoso</option>
+                  <option value="no_interesa">No interesa</option>
                   <option value="demo_agendada">Demo agendada</option>
                   <option value="convertido">Convertido</option>
                   <option value="baja">Baja</option>
