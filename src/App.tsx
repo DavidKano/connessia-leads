@@ -213,6 +213,18 @@ export default function App() {
         return;
       }
 
+      // Force session logout to synchronize new Firestore users schema
+      const currentAuthVersion = window.localStorage.getItem("connessia_auth_version");
+      const TARGET_AUTH_VERSION = "2026-06-05_force_logout_v1";
+      if (currentAuthVersion !== TARGET_AUTH_VERSION) {
+        try {
+          await signOut(auth);
+        } catch (e) {
+          // Ignore errors during initial force logout
+        }
+        window.localStorage.setItem("connessia_auth_version", TARGET_AUTH_VERSION);
+      }
+
       unsubscribe = onAuthStateChanged(
         auth,
         (user) => {
