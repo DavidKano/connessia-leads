@@ -1,6 +1,7 @@
 import { collection, deleteDoc, doc, getDocs, setDoc } from "firebase/firestore";
 import { getFirebaseDb } from "./firebase";
 import type { 
+  AppUser,
   Lead, 
   LeadGroup, 
   MessageTemplate, 
@@ -28,7 +29,8 @@ const COLLECTIONS = {
   SETTINGS: "settings",
   MESSAGES: "messages",
   QUEUE: "campaignQueue",
-  OBSERVATIONS: "observaciones"
+  OBSERVATIONS: "observaciones",
+  USERS: "users"
 };
 
 async function getAll<T>(collectionName: string): Promise<T[]> {
@@ -129,5 +131,11 @@ export const deleteQueueItemFromFirestore = (itemId: string) => deleteOne(COLLEC
 export const loadObservationsFromFirestore = () => getAll<LeadObservation>(COLLECTIONS.OBSERVATIONS);
 export const saveObservationToFirestore = (observation: LeadObservation) => saveOne(COLLECTIONS.OBSERVATIONS, observation.id, observation);
 export const deleteObservationFromFirestore = (observationId: string) => deleteOne(COLLECTIONS.OBSERVATIONS, observationId);
+
+// Users
+export const loadUsersFromFirestore = () => getAll<AppUser>(COLLECTIONS.USERS);
+export const saveUserToFirestore = (user: AppUser) => saveOne(COLLECTIONS.USERS, user.uid, user);
+export const deleteUserFromFirestore = (userId: string) => deleteOne(COLLECTIONS.USERS, userId);
+
 
 

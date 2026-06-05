@@ -265,7 +265,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="flex min-h-screen">
-        <Sidebar page={page} setPage={setPage} />
+        <Sidebar page={page} setPage={setPage} currentUser={state.currentUser} />
         <div className="min-w-0 flex-1">
           <Topbar
             user={state.currentUser}
@@ -376,6 +376,9 @@ export default function App() {
             {page === "auditoria" && <AuditScreen state={state} />}
             {page === "simulador" && <SimulatorScreen state={state} updateState={store.updateState} />}
             {page === "finder" && <LeadFinderScreen />}
+            {page === "usuarios" && state.currentUser.role === "admin" && (
+              <UsersScreen state={state} onSaveUser={store.upsertUser} />
+            )}
           </main>
         </div>
       </div>
@@ -391,7 +394,15 @@ export default function App() {
             </div>
             <div className="grid gap-1">
               {navItems
-                .filter((item) => !["assets", "metricas", "tutorial", "auditoria", "simulador"].includes(item.id))
+                .filter((item) => {
+                  if (["assets", "metricas", "tutorial", "auditoria", "simulador"].includes(item.id)) {
+                    return false;
+                  }
+                  if (item.id === "usuarios" && state.currentUser?.role !== "admin") {
+                    return false;
+                  }
+                  return true;
+                })
                 .map((item) => (
                   <button
                     key={item.id}
@@ -1106,7 +1117,7 @@ function LeadFormModal({
         <label>
           <span className="mb-1 block text-sm font-semibold text-slate-700">Comercial asignado</span>
           <select className={inputClass} value={draft.comercialAsignado} onChange={(event) => update("comercialAsignado", event.target.value)}>
-            {users.map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
+            {users.filter(u => u.activo && (u.role === "admin" || u.role === "comercial")).map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
           </select>
         </label>
         <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 md:col-span-2">
@@ -3533,7 +3544,7 @@ function TaskFormModal({
         <label>
           <span className="mb-1 block text-sm font-semibold text-slate-700">Asignado</span>
           <select className={inputClass} value={draft.assignedTo} onChange={(event) => setDraft({ ...draft, assignedTo: event.target.value })}>
-            {users.map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
+            {users.filter(u => u.activo && (u.role === "admin" || u.role === "comercial")).map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
           </select>
         </label>
         <label>
@@ -3589,7 +3600,7 @@ function DemoFormModal({
         <label>
           <span className="mb-1 block text-sm font-semibold text-slate-700">Asignado</span>
           <select className={inputClass} value={draft.assignedTo} onChange={(event) => setDraft({ ...draft, assignedTo: event.target.value })}>
-            {users.map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
+            {users.filter(u => u.activo && (u.role === "admin" || u.role === "comercial")).map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
           </select>
         </label>
         <Field label="Fecha" value={draft.date} type="date" onChange={(value) => setDraft({ ...draft, date: value })} />
@@ -3809,6 +3820,206 @@ function ExclusionScreen({ state, onAdd }: { state: ReturnType<typeof useCrmStor
       </Card>
       <ListScreen title="Contactos excluidos" subtitle="" items={state.doNotContact.map((item) => ({ id: item.id, title: item.phone, meta: `${item.email ?? "Sin email"} · ${item.reason} · ${formatDateTime(item.createdAt)}`, status: item.source }))} embedded />
     </div>
+  );
+}
+
+function UsersScreen({
+  state,
+  onSaveUser
+}: {
+  state: ReturnType<typeof useCrmStore>["state"];
+  onSaveUser: (user: AppUser) => void;
+}) {
+  const [editing, setEditing] = useState<AppUser | null>(null);
+
+  const handleNewUser = () => {
+    setEditing({
+      uid: `user-${crypto.randomUUID()}`,
+      nombre: "",
+      email: "",
+      role: "comercial",
+      activo: true,
+      createdAt: new Date().toISOString()
+    });
+  };
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeader
+        title="Gestión de Usuarios"
+        subtitle="Administra los comerciales y administradores con acceso a la plataforma."
+        action={
+          <Button icon={<Plus size={18} />} onClick={handleNewUser}>
+            Nuevo Usuario
+          </Button>
+        }
+      />
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto table-scroll">
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Nombre</th>
+                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">Rol</th>
+                <th className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3">Fecha de registro</th>
+                <th className="px-4 py-3">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {state.users.map((user) => (
+                <tr key={user.uid} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-semibold text-slate-900">{user.nombre}</td>
+                  <td className="px-4 py-3 text-slate-600">{user.email}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        user.role === "admin"
+                          ? "bg-connessia-50 text-connessia-800 border border-connessia-200"
+                          : "bg-slate-50 text-slate-700 border border-slate-200"
+                      }`}
+                    >
+                      {user.role === "admin" ? "Admin" : "Comercial"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        user.activo
+                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                          : "bg-coral-50 text-coral-800 border border-coral-200"
+                      }`}
+                    >
+                      {user.activo ? "Activo" : "Inactivo"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">
+                    {user.createdAt ? formatDate(user.createdAt.slice(0, 10)) : "Sin fecha"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Button
+                      variant="secondary"
+                      icon={<Edit3 size={16} />}
+                      onClick={() => setEditing(user)}
+                    >
+                      Editar
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {state.users.length === 0 && (
+                <tr>
+                  <td className="px-4 py-6 text-slate-500 text-center" colSpan={6}>
+                    No hay usuarios registrados.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {editing && (
+        <UserFormModal
+          user={editing}
+          onClose={() => setEditing(null)}
+          onSave={(updatedUser) => {
+            onSaveUser(updatedUser);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function UserFormModal({
+  user,
+  onClose,
+  onSave
+}: {
+  user: AppUser;
+  onClose: () => void;
+  onSave: (user: AppUser) => void;
+}) {
+  const [draft, setDraft] = useState<AppUser>({ ...user });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!draft.nombre.trim() || !draft.email.trim()) {
+      alert("Por favor rellena el nombre y email del usuario.");
+      return;
+    }
+    onSave(draft);
+  };
+
+  return (
+    <Modal title={user.uid.startsWith("user-") && !user.email ? "Nuevo Usuario" : "Editar Usuario"} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-semibold text-slate-700 mb-1">Nombre</label>
+          <input
+            className={inputClass}
+            value={draft.nombre}
+            onChange={(e) => setDraft({ ...draft, nombre: e.target.value })}
+            placeholder="Nombre del comercial"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+          <input
+            type="email"
+            className={inputClass}
+            value={draft.email}
+            onChange={(e) => setDraft({ ...draft, email: e.target.value.trim().toLowerCase() })}
+            placeholder="comercial@correo.com"
+            required
+            disabled={user.email ? true : false}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-slate-700 mb-1">Rol</label>
+          <select
+            className={inputClass}
+            value={draft.role}
+            onChange={(e) => setDraft({ ...draft, role: e.target.value as any })}
+          >
+            <option value="admin">Administrador</option>
+            <option value="comercial">Comercial</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 pt-2">
+          <input
+            type="checkbox"
+            id="userActiveCheckbox"
+            className="h-5 w-5 rounded border-slate-300 text-connessia-600 focus:ring-connessia-500 cursor-pointer"
+            checked={draft.activo}
+            onChange={(e) => setDraft({ ...draft, activo: e.target.checked })}
+          />
+          <label
+            htmlFor="userActiveCheckbox"
+            className="text-sm font-semibold text-slate-700 cursor-pointer select-none"
+          >
+            Usuario Activo
+          </label>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-2 border-t border-slate-100 pt-4">
+          <Button variant="secondary" onClick={onClose} type="button">
+            Cancelar
+          </Button>
+          <Button type="submit">
+            Guardar
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -4256,11 +4467,13 @@ function InProgressLeadEditSheet({
                   value={editForm.comercialAsignado}
                   onChange={(e) => setEditForm({ ...editForm, comercialAsignado: e.target.value })}
                 >
-                  {users.map((u) => (
-                    <option key={u.uid} value={u.uid}>
-                      {u.nombre}
-                    </option>
-                  ))}
+                  {users
+                    .filter((u) => u.activo && (u.role === "admin" || u.role === "comercial"))
+                    .map((u) => (
+                      <option key={u.uid} value={u.uid}>
+                        {u.nombre}
+                      </option>
+                    ))}
                 </select>
               </div>
 

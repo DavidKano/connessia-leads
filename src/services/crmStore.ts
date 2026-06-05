@@ -64,7 +64,10 @@ import {
   deleteQueueItemFromFirestore,
   deleteObservationFromFirestore,
   loadObservationsFromFirestore,
-  saveObservationToFirestore
+  saveObservationToFirestore,
+  loadUsersFromFirestore,
+  saveUserToFirestore,
+  deleteUserFromFirestore
 } from "./firestoreStore";
 import { configureFirebase, ensureFirebaseConfigured, getActiveFirebaseConfig } from "./firebase";
 import { normalizePhone } from "../utils/formatters";
@@ -242,6 +245,30 @@ function persistDeletedEntities<T extends PersistableEntity>(
     .map((item) => deleteItem(item.id));
 }
 
+function persistChangedUsers(
+  previousUsers: AppUser[],
+  nextUsers: AppUser[],
+  saveUser: (user: AppUser) => Promise<void>
+) {
+  return nextUsers
+    .filter((user) => {
+      const prev = previousUsers?.find((u) => u.uid === user.uid);
+      return !prev || JSON.stringify(prev) !== JSON.stringify(user);
+    })
+    .map(saveUser);
+}
+
+function persistDeletedUsers(
+  previousUsers: AppUser[],
+  nextUsers: AppUser[],
+  deleteUser: (uid: string) => Promise<void>
+) {
+  const nextUids = new Set(nextUsers.map((u) => u.uid));
+  return (previousUsers ?? [])
+    .filter((user) => !nextUids.has(user.uid))
+    .map((user) => deleteUser(user.uid));
+}
+
 function persistChangedFirestoreState(previous: CrmState, next: CrmState, setToast: (message: string) => void) {
   const jobs = [
     // Saves & Updates
@@ -256,6 +283,7 @@ function persistChangedFirestoreState(previous: CrmState, next: CrmState, setToa
     ...persistChangedEntities(previous.messages, next.messages, saveMessageToFirestore),
     ...persistChangedEntities(previous.queue, next.queue, saveQueueItemToFirestore),
     ...persistChangedEntities(previous.observations, next.observations, saveObservationToFirestore),
+    ...persistChangedUsers(previous.users, next.users, saveUserToFirestore),
 
     // Deletions
     ...persistDeletedEntities(previous.leads, next.leads, deleteLeadFromFirestore),
@@ -267,7 +295,8 @@ function persistChangedFirestoreState(previous: CrmState, next: CrmState, setToa
     ...persistDeletedEntities(previous.demos, next.demos, deleteDemoFromFirestore),
     ...persistDeletedEntities(previous.messages, next.messages, deleteMessageFromFirestore),
     ...persistDeletedEntities(previous.queue, next.queue, deleteQueueItemFromFirestore),
-    ...persistDeletedEntities(previous.observations, next.observations, deleteObservationFromFirestore)
+    ...persistDeletedEntities(previous.observations, next.observations, deleteObservationFromFirestore),
+    ...persistDeletedUsers(previous.users, next.users, deleteUserFromFirestore)
   ];
 
   if (jobs.length === 0) return;
@@ -302,7 +331,8 @@ export function useCrmStore() {
           remoteSettings,
           remoteMessages,
           remoteQueue,
-          remoteObservations
+          remoteObservations,
+          remoteUsers
         ] = await Promise.all([
           loadLeadsFromFirestore(),
           loadGroupsFromFirestore(),
@@ -315,8 +345,31 @@ export function useCrmStore() {
           loadSettingsFromFirestore(),
           loadMessagesFromFirestore(),
           loadQueueFromFirestore(),
-          loadObservationsFromFirestore()
+          loadObservationsFromFirestore(),
+          loadUsersFromFirestore()
         ]);
+
+        const currentEmail = state.currentUser.email.trim().toLowerCase();
+        let matchedUser = remoteUsers.find(u => u.email.trim().toLowerCase() === currentEmail);
+        
+        let updatedUsersList = [...remoteUsers];
+        let currentUserUpdated = state.currentUser;
+        
+        if (matchedUser) {
+          currentUserUpdated = { ...currentUserUpdated, ...matchedUser };
+        } else if (state.currentUser.email) {
+          const newUserDoc: AppUser = {
+            uid: state.currentUser.uid,
+            nombre: state.currentUser.nombre,
+            email: state.currentUser.email,
+            role: "admin", // Default to admin for first login
+            activo: true,
+            createdAt: new Date().toISOString()
+          };
+          currentUserUpdated = newUserDoc;
+          updatedUsersList.push(newUserDoc);
+          await saveUserToFirestore(newUserDoc);
+        }
 
         setState((current) => {
           const next = normalizeLoadedState({
@@ -332,7 +385,9 @@ export function useCrmStore() {
             settings: resolveSettings(remoteSettings, current.settings),
             messages: remoteMessages,
             queue: remoteQueue ?? [],
-            observations: remoteObservations ?? []
+            observations: remoteObservations ?? [],
+            users: updatedUsersList,
+            currentUser: currentUserUpdated
           });
           persistLocalState(next);
           return next;
@@ -692,6 +747,24 @@ export function useCrmStore() {
     });
   }
 
+  function upsertUser(user: AppUser) {
+    const exists = state.users.some((item) => item.uid === user.uid);
+    const nextUsers = exists
+      ? state.users.map((item) => (item.uid === user.uid ? user : item))
+      : [user, ...state.users];
+    
+    const isCurrentUser = state.currentUser.uid === user.uid;
+    
+    updateState(
+      { 
+        ...state, 
+        users: nextUsers,
+        currentUser: isCurrentUser ? user : state.currentUser
+      }, 
+      exists ? "Usuario actualizado." : "Usuario creado."
+    );
+  }
+
   return {
     state,
     metrics,
@@ -719,7 +792,8 @@ export function useCrmStore() {
     deleteTask,
     upsertDemo,
     deleteDemo,
-    upsertObservation
+    upsertObservation,
+    upsertUser
   };
 }
 

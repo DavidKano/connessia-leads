@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 
+import type { AppUser } from "../../types/domain";
+
 export const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "leads", label: "Leads", icon: Users },
@@ -34,6 +36,7 @@ export const navItems = [
   { id: "tareas", label: "Tareas", icon: ClipboardList },
   { id: "demos", label: "Demos", icon: CalendarClock },
   { id: "metricas", label: "Métricas", icon: BarChart3 },
+  { id: "usuarios", label: "Usuarios", icon: ShieldCheck },
   { id: "whatsapp", label: "Canal WhatsApp", icon: Settings },
   { id: "tutorial", label: "Tutorial", icon: ListChecks },
   { id: "exclusion", label: "Exclusión", icon: ShieldCheck },
@@ -44,7 +47,7 @@ export const navItems = [
 
 export type PageId = (typeof navItems)[number]["id"];
 
-export function Sidebar({ page, setPage }: { page: PageId; setPage: (page: PageId) => void }) {
+export function Sidebar({ page, setPage, currentUser }: { page: PageId; setPage: (page: PageId) => void; currentUser?: AppUser }) {
   return (
     <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white px-4 py-5 lg:block">
       <div className="mb-7 flex items-center gap-3 px-2">
@@ -58,7 +61,15 @@ export function Sidebar({ page, setPage }: { page: PageId; setPage: (page: PageI
       </div>
       <nav className="space-y-1">
         {navItems
-          .filter((item) => !["assets", "metricas", "tutorial", "auditoria", "simulador"].includes(item.id))
+          .filter((item) => {
+            if (["assets", "metricas", "tutorial", "auditoria", "simulador"].includes(item.id)) {
+              return false;
+            }
+            if (item.id === "usuarios" && currentUser?.role !== "admin") {
+              return false;
+            }
+            return true;
+          })
           .map((item) => {
             const Icon = item.icon;
             return (
