@@ -36,13 +36,13 @@ export const navItems = [
   { id: "tareas", label: "Tareas", icon: ClipboardList },
   { id: "demos", label: "Demos", icon: CalendarClock },
   { id: "metricas", label: "Métricas", icon: BarChart3 },
-  { id: "usuarios", label: "Usuarios", icon: ShieldCheck },
   { id: "whatsapp", label: "Canal WhatsApp", icon: Settings },
   { id: "tutorial", label: "Tutorial", icon: ListChecks },
   { id: "exclusion", label: "Exclusión", icon: ShieldCheck },
   { id: "auditoria", label: "Auditoría", icon: History },
   { id: "simulador", label: "Simulador", icon: Bot },
-  { id: "finder", label: "Obtención Leads", icon: Search }
+  { id: "finder", label: "Obtención Leads", icon: Search },
+  { id: "usuarios", label: "Usuarios", icon: ShieldCheck }
 ] as const;
 
 export type PageId = (typeof navItems)[number]["id"];
