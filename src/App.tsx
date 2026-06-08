@@ -39,7 +39,7 @@ import { useCrmStore } from "./services/crmStore";
 import { buildImportPreview, readLeadFile, type ImportPreview } from "./services/importService";
 import { uploadCommercialAsset } from "./services/storageAssets";
 import { buildWhatsAppWebUrl, openWhatsAppWebComposer } from "./services/whatsappProvider";
-import type { AppUser, Campaign, CommercialAsset, ContactedLeadCloseStatus, ContactedLeadOutcome, Demo, Lead, LeadGroup, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole, LeadObservation } from "./types/domain";
+import type { AppUser, Campaign, CommercialAsset, ContactedLeadCloseStatus, ContactedLeadOutcome, Demo, Lead, LeadGroup, Message, MessageTemplate, ProviderName, QueueItem, Settings, Task, UserRole, LeadObservation } from "./types/domain";
 import { formatDate, formatDateTime, normalizePhone, percent, renderTemplate } from "./utils/formatters";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User as FirebaseUser } from "firebase/auth";
 import { auth, ensureFirebaseConfigured } from "./services/firebase";
@@ -4309,6 +4309,7 @@ interface InProgressLeadEditSheetProps {
   lead: Lead;
   users: AppUser[];
   observations: LeadObservation[];
+  messages: Message[];
   onSaveLead: (lead: Lead) => void;
   onSaveObservation: (obs: LeadObservation) => void;
   onScheduleDemo: () => void;
@@ -4319,6 +4320,7 @@ function InProgressLeadEditSheet({
   lead,
   users,
   observations,
+  messages,
   onSaveLead,
   onSaveObservation,
   onScheduleDemo,
@@ -4327,6 +4329,13 @@ function InProgressLeadEditSheet({
   const [editForm, setEditForm] = useState<Lead>({ ...lead });
   const [newObs, setNewObs] = useState("");
   const [viewingObs, setViewingObs] = useState<LeadObservation | null>(null);
+  const [showChatModal, setShowChatModal] = useState(false);
+
+  const leadMessages = useMemo(() => {
+    return messages
+      .filter((msg) => msg.leadId === lead.id && msg.kind !== "internal_note")
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [messages, lead.id]);
 
   const leadObservations = observations
     .filter((o) => o.leadId === lead.id)
@@ -4658,14 +4667,24 @@ function InProgressLeadEditSheet({
         </div>
 
         <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-4">
-          <button
-            type="button"
-            onClick={handleScheduleDemo}
-            className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-100 transition"
-          >
-            <CalendarClock size={16} />
-            Agendar Demo
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleScheduleDemo}
+              className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-100 transition"
+            >
+              <CalendarClock size={16} />
+              Agendar Demo
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowChatModal(true)}
+              className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 hover:bg-emerald-100 transition"
+            >
+              <MessageCircle size={16} />
+              Mostrar WhatsApps enviados
+            </button>
+          </div>
           
           <div className="flex items-center gap-3">
             <button
@@ -4685,6 +4704,74 @@ function InProgressLeadEditSheet({
           </div>
         </div>
       </div>
+
+      {showChatModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4 animate-fade-in">
+          <div className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-2xl animate-scale-up border border-slate-100 flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4 shrink-0">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <MessageCircle size={18} className="text-emerald-600" />
+                  Historial de WhatsApp: {lead.nombreNegocio}
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">Mensajes de campaña y respuestas registradas</p>
+              </div>
+              <button
+                onClick={() => setShowChatModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100 min-h-[300px]">
+              {leadMessages.map((msg) => {
+                const isInbound = msg.direction === "inbound";
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex ${isInbound ? "justify-start" : "justify-end"}`}
+                  >
+                    <div
+                      className={`max-w-[80%] rounded-lg p-3 text-sm shadow-sm ${
+                        isInbound
+                          ? "bg-white text-slate-800 border border-slate-200/60 rounded-tl-none font-medium"
+                          : "bg-emerald-600 text-white rounded-tr-none font-medium"
+                      }`}
+                    >
+                      <div className="whitespace-pre-wrap leading-relaxed">{msg.body}</div>
+                      <div
+                        className={`text-[10px] mt-1.5 text-right ${
+                          isInbound ? "text-slate-400" : "text-emerald-100"
+                        }`}
+                      >
+                        {formatDateTime(msg.createdAt)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {leadMessages.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 py-12">
+                  <MessageCircle size={40} className="opacity-20 mb-2" />
+                  <p className="text-sm font-semibold">No se han registrado mensajes para este lead.</p>
+                  <p className="text-xs text-slate-400">Los envíos de campaña aparecerán aquí una vez procesados.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 text-right shrink-0 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowChatModal(false)}
+                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-900 transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {viewingObs && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4 animate-fade-in">
@@ -5086,6 +5173,7 @@ function InProgressLeadsScreen({
           lead={editingLead}
           users={state.users}
           observations={state.observations}
+          messages={state.messages}
           onSaveLead={(updatedLead) => {
             onSave(updatedLead);
             setEditingLead(null);
