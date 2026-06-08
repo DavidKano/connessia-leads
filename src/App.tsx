@@ -4770,8 +4770,11 @@ function InProgressLeadsScreen({
   const sectorOptions = (uniqueSectores as string[]).map((sec: string) => ({ value: sec, label: sec }));
 
   const commercialOptions = useMemo(() => {
+    const list = [
+      { value: "sin_asignar", label: "Sin asignar" }
+    ];
     const assignedUids = Array.from(new Set(inProgressLeads.map((l) => l.comercialAsignado).filter(Boolean)));
-    const list = assignedUids.map((uid) => {
+    const userList = assignedUids.map((uid) => {
       const user = state.users.find((u) => u.uid === uid);
       return {
         value: uid,
@@ -4781,11 +4784,12 @@ function InProgressLeadsScreen({
     state.users
       .filter((u) => u.activo && (u.role === "admin" || u.role === "comercial"))
       .forEach((u) => {
-        if (!list.some((item) => item.value === u.uid)) {
-          list.push({ value: u.uid, label: u.nombre });
+        if (!userList.some((item) => item.value === u.uid)) {
+          userList.push({ value: u.uid, label: u.nombre });
         }
       });
-    return list.sort((a, b) => a.label.localeCompare(b.label));
+    userList.sort((a, b) => a.label.localeCompare(b.label));
+    return [...list, ...userList];
   }, [inProgressLeads, state.users]);
 
   const filtered = inProgressLeads.filter((lead) => {
@@ -4800,7 +4804,9 @@ function InProgressLeadsScreen({
 
     const matchesSector = selectedSectores.length === 0 || (lead.sector && selectedSectores.includes(lead.sector));
 
-    const matchesComercial = selectedComerciales.length === 0 || (lead.comercialAsignado && selectedComerciales.includes(lead.comercialAsignado));
+    const matchesComercial = selectedComerciales.length === 0 ||
+      (selectedComerciales.includes("sin_asignar") && !lead.comercialAsignado) ||
+      (lead.comercialAsignado && selectedComerciales.includes(lead.comercialAsignado));
 
     return matchesQuery && matchesState && matchesSeguimiento && matchesSector && matchesComercial;
   });
@@ -4811,6 +4817,22 @@ function InProgressLeadsScreen({
     } else {
       setSortKey(key);
       setSortDir("asc");
+    }
+  };
+
+  const handleTempUnassignAll = () => {
+    const confirmText = "¿Estás seguro de que deseas desasignar el comercial de TODOS los leads en curso? Esto los dejará a todos 'Sin asignar'.";
+    if (window.confirm(confirmText)) {
+      inProgressLeads.forEach((lead) => {
+        if (lead.comercialAsignado) {
+          onSave({
+            ...lead,
+            comercialAsignado: "",
+            updatedAt: new Date().toISOString()
+          });
+        }
+      });
+      alert("Se ha solicitado la desasignación de todos los leads en curso.");
     }
   };
 
@@ -4910,6 +4932,15 @@ function InProgressLeadsScreen({
       <ScreenHeader
         title="Leads en curso"
         subtitle="Bandeja de leads activos en prospección, campañas y clasificaciones comerciales."
+        action={
+          <Button
+            variant="secondary"
+            className="bg-coral-50 hover:bg-coral-100 text-coral-700 border-coral-200"
+            onClick={handleTempUnassignAll}
+          >
+            Desasignar Todos (Temporal)
+          </Button>
+        }
       />
       <Card className="p-4">
         <div className="grid gap-3 grid-cols-1 md:grid-cols-3 xl:grid-cols-7">
