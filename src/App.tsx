@@ -197,6 +197,7 @@ export default function App() {
   const [inProgressStates, setInProgressStates] = useState<string[]>([]);
   const [inProgressSeguimientos, setInProgressSeguimientos] = useState<string[]>([]);
   const [inProgressSectores, setInProgressSectores] = useState<string[]>([]);
+  const [inProgressComerciales, setInProgressComerciales] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -358,6 +359,8 @@ export default function App() {
                 setSelectedSeguimientos={setInProgressSeguimientos}
                 selectedSectores={inProgressSectores}
                 setSelectedSectores={setInProgressSectores}
+                selectedComerciales={inProgressComerciales}
+                setSelectedComerciales={setInProgressComerciales}
               />
             )}
             {page === "terminados" && (
@@ -4724,7 +4727,9 @@ function InProgressLeadsScreen({
   selectedSeguimientos,
   setSelectedSeguimientos,
   selectedSectores,
-  setSelectedSectores
+  setSelectedSectores,
+  selectedComerciales,
+  setSelectedComerciales
 }: {
   state: ReturnType<typeof useCrmStore>["state"];
   onSave: (lead: Lead) => void;
@@ -4742,6 +4747,8 @@ function InProgressLeadsScreen({
   setSelectedSeguimientos: (val: string[]) => void;
   selectedSectores: string[];
   setSelectedSectores: (val: string[]) => void;
+  selectedComerciales: string[];
+  setSelectedComerciales: (val: string[]) => void;
 }) {
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
 
@@ -4760,6 +4767,25 @@ function InProgressLeadsScreen({
 
   const sectorOptions = (uniqueSectores as string[]).map((sec: string) => ({ value: sec, label: sec }));
 
+  const commercialOptions = useMemo(() => {
+    const assignedUids = Array.from(new Set(inProgressLeads.map((l) => l.comercialAsignado).filter(Boolean)));
+    const list = assignedUids.map((uid) => {
+      const user = state.users.find((u) => u.uid === uid);
+      return {
+        value: uid,
+        label: user ? user.nombre : uid
+      };
+    });
+    state.users
+      .filter((u) => u.activo && (u.role === "admin" || u.role === "comercial"))
+      .forEach((u) => {
+        if (!list.some((item) => item.value === u.uid)) {
+          list.push({ value: u.uid, label: u.nombre });
+        }
+      });
+    return list.sort((a, b) => a.label.localeCompare(b.label));
+  }, [inProgressLeads, state.users]);
+
   const filtered = inProgressLeads.filter((lead) => {
     const text = `${lead.nombreNegocio} ${lead.telefono} ${lead.ciudad} ${lead.zona} ${lead.sector || ""}`.toLowerCase();
     const matchesQuery = text.includes(query.toLowerCase());
@@ -4772,7 +4798,9 @@ function InProgressLeadsScreen({
 
     const matchesSector = selectedSectores.length === 0 || (lead.sector && selectedSectores.includes(lead.sector));
 
-    return matchesQuery && matchesState && matchesSeguimiento && matchesSector;
+    const matchesComercial = selectedComerciales.length === 0 || (lead.comercialAsignado && selectedComerciales.includes(lead.comercialAsignado));
+
+    return matchesQuery && matchesState && matchesSeguimiento && matchesSector && matchesComercial;
   });
 
   const handleSort = (key: string) => {
@@ -4878,7 +4906,7 @@ function InProgressLeadsScreen({
         subtitle="Bandeja de leads activos en prospección, campañas y clasificaciones comerciales."
       />
       <Card className="p-4">
-        <div className="grid gap-3 grid-cols-1 md:grid-cols-4 xl:grid-cols-6">
+        <div className="grid gap-3 grid-cols-1 md:grid-cols-3 xl:grid-cols-7">
           <label className="relative col-span-1 md:col-span-2">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
             <input
@@ -4905,6 +4933,12 @@ function InProgressLeadsScreen({
             options={sectorOptions}
             selectedValues={selectedSectores}
             onChange={setSelectedSectores}
+          />
+          <MultiSelectDropdown
+            label="Filtrar Comerciales"
+            options={commercialOptions}
+            selectedValues={selectedComerciales}
+            onChange={setSelectedComerciales}
           />
           <div className="flex items-center justify-end col-span-1">
             <span className="text-xs font-semibold text-slate-400">
