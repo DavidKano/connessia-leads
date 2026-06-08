@@ -4849,6 +4849,10 @@ function InProgressLeadsScreen({
         valA = a.sector || "";
         valB = b.sector || "";
         break;
+      case "comercial":
+        valA = state.users.find((u) => u.uid === a.comercialAsignado)?.nombre ?? (a.comercialAsignado || "");
+        valB = state.users.find((u) => u.uid === b.comercialAsignado)?.nombre ?? (b.comercialAsignado || "");
+        break;
       default:
         return 0;
     }
@@ -4978,6 +4982,11 @@ function InProgressLeadsScreen({
                     Sector {getSortIcon("sector")}
                   </div>
                 </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("comercial")}>
+                  <div className="flex items-center gap-1.5">
+                    Comercial {getSortIcon("comercial")}
+                  </div>
+                </th>
                 <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("ultimoContacto")}>
                   <div className="flex items-center gap-1.5">
                     Último Contacto {getSortIcon("ultimoContacto")}
@@ -5012,6 +5021,9 @@ function InProgressLeadsScreen({
                   <td className="px-4 py-3 text-slate-600">{lead.ciudad}</td>
                   <td className="px-4 py-3 text-slate-600">{lead.zona}</td>
                   <td className="px-4 py-3 text-slate-600">{lead.sector}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {state.users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? (lead.comercialAsignado || "Sin asignar")}
+                  </td>
                   <td className="px-4 py-3 text-xs font-semibold text-slate-500 whitespace-nowrap">
                     {lead.ultimoContacto ? formatDateTime(lead.ultimoContacto) : "Sin contacto"}
                   </td>
@@ -5042,7 +5054,7 @@ function InProgressLeadsScreen({
               ))}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-5 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={10} className="px-5 py-8 text-center text-sm text-slate-500">
                     No se encontraron leads en curso que coincidan con los criterios.
                   </td>
                 </tr>
