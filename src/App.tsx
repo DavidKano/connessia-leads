@@ -4820,22 +4820,6 @@ function InProgressLeadsScreen({
     }
   };
 
-  const handleTempUnassignAll = () => {
-    const confirmText = "¿Estás seguro de que deseas desasignar el comercial de TODOS los leads en curso? Esto los dejará a todos 'Sin asignar'.";
-    if (window.confirm(confirmText)) {
-      inProgressLeads.forEach((lead) => {
-        if (lead.comercialAsignado) {
-          onSave({
-            ...lead,
-            comercialAsignado: "",
-            updatedAt: new Date().toISOString()
-          });
-        }
-      });
-      alert("Se ha solicitado la desasignación de todos los leads en curso.");
-    }
-  };
-
   const sorted = [...filtered].sort((a, b) => {
     let valA: any = "";
     let valB: any = "";
@@ -4932,15 +4916,6 @@ function InProgressLeadsScreen({
       <ScreenHeader
         title="Leads en curso"
         subtitle="Bandeja de leads activos en prospección, campañas y clasificaciones comerciales."
-        action={
-          <Button
-            variant="secondary"
-            className="bg-coral-50 hover:bg-coral-100 text-coral-700 border-coral-200"
-            onClick={handleTempUnassignAll}
-          >
-            Desasignar Todos (Temporal)
-          </Button>
-        }
       />
       <Card className="p-4">
         <div className="grid gap-3 grid-cols-1 md:grid-cols-3 xl:grid-cols-7">
