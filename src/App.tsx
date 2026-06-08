@@ -271,7 +271,7 @@ export default function App() {
     return <AuthScreen />;
   }
 
-  const visibleLeads = state.leads.filter((lead) => !lead.contactadoCerradoAt);
+  const visibleLeads = state.leads.filter((lead) => !lead.contactadoCerradoAt && lead.seguimiento !== "finalizado");
 
   const selectedLead = selectedLeadId ? state.leads.find((lead) => lead.id === selectedLeadId) : null;
 
@@ -2819,7 +2819,7 @@ function ContactedLeadsScreen({
 }) {
   const outcomes: ContactedLeadOutcome[] = ["interesado_comercial", "dudoso_comercial", "no_interesa"];
   const contactedLeads = state.leads
-    .filter((lead) => lead.contactadoResultado && !lead.contactadoCerradoAt)
+    .filter((lead) => lead.contactadoResultado && !lead.contactadoCerradoAt && lead.seguimiento !== "finalizado")
     .sort((a, b) => (b.contactadoAt ?? "").localeCompare(a.contactadoAt ?? ""));
 
   function closeLead(lead: Lead, closeStatus: ContactedLeadCloseStatus) {
@@ -2928,8 +2928,12 @@ function FinishedLeadsScreen({
   onSelect: (id: string) => void;
 }) {
   const finishedLeads = state.leads
-    .filter((lead) => lead.contactadoCerradoAt)
-    .sort((a, b) => (b.contactadoCerradoAt ?? "").localeCompare(a.contactadoCerradoAt ?? ""));
+    .filter((lead) => lead.contactadoCerradoAt || lead.seguimiento === "finalizado")
+    .sort((a, b) => {
+      const dateA = a.contactadoCerradoAt || a.updatedAt || "";
+      const dateB = b.contactadoCerradoAt || b.updatedAt || "";
+      return dateB.localeCompare(dateA);
+    });
   const closeStatuses: ContactedLeadCloseStatus[] = ["terminado", "baja"];
 
   return (
@@ -2943,7 +2947,9 @@ function FinishedLeadsScreen({
           <StatCard
             key={status}
             label={contactedCloseLabels[status]}
-            value={finishedLeads.filter((lead) => lead.contactadoCierre === status).length}
+            value={finishedLeads.filter((lead) => 
+              lead.contactadoCierre === status || (status === "terminado" && !lead.contactadoCierre && lead.seguimiento === "finalizado")
+            ).length}
             icon={<Users size={20} />}
             tone={status === "baja" ? "coral" : "blue"}
           />
@@ -2980,7 +2986,7 @@ function FinishedLeadsScreen({
                     <td>{lead.telefono}</td>
                     <td>{lead.sector || "Sin sector"}</td>
                     <td>{campaign?.nombre ?? "Sin campana"}</td>
-                    <td>{formatDateTime(lead.contactadoCerradoAt)}</td>
+                    <td>{formatDateTime(lead.contactadoCerradoAt || lead.updatedAt)}</td>
                     <td>
                       <Button variant="secondary" onClick={() => onSelect(lead.id)}>
                         Abrir ficha
@@ -4759,7 +4765,10 @@ function InProgressLeadsScreen({
     const isDudoso = lead.contactadoResultado === "dudoso_comercial";
     const isInteresado = lead.contactadoResultado === "interesado_comercial" || lead.estado === "interesado";
     const isNoInteresa = lead.contactadoResultado === "no_interesa" || lead.estado === "no_interesado";
-    return (inActiveCampaign || isDudoso || isInteresado || isNoInteresa) && !lead.contactadoCerradoAt && lead.estado !== "demo_agendada";
+    return (inActiveCampaign || isDudoso || isInteresado || isNoInteresa) && 
+      !lead.contactadoCerradoAt && 
+      lead.estado !== "demo_agendada" &&
+      lead.seguimiento !== "finalizado";
   });
 
   const uniqueSectores = useMemo(() => {
