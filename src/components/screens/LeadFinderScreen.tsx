@@ -337,7 +337,7 @@ export function LeadFinderScreen() {
         estado: "nuevo",
         etiquetas: ["Google Maps"],
         grupoIds: [],
-        comercialAsignado: store.state.currentUser.uid,
+        comercialAsignado: "",
         tieneConsentimientoWhatsapp: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()

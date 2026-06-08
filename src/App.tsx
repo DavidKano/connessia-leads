@@ -56,7 +56,7 @@ const complianceItems = [
   "Confirmo que no se usará WhatsApp para spam."
 ];
 
-function emptyLead(assignedTo = "admin-demo"): Lead {
+function emptyLead(assignedTo = ""): Lead {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
@@ -870,7 +870,7 @@ function LeadsScreen({
       <ScreenHeader
         title="Gestión de leads"
         subtitle="CRM comercial con grupos, consentimiento, estados, notas e historial."
-        action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(currentUser.uid))}>Nuevo lead</Button>}
+        action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(""))}>Nuevo lead</Button>}
       />
       <Card className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -976,7 +976,7 @@ function LeadsScreen({
                   <td className="px-3 py-3">{lead.email}</td>
                   <td className="px-3 py-3"><Badge value={lead.estado} /></td>
                   <td className="px-3 py-3 text-center font-medium">{lead.tieneConsentimientoWhatsapp ? "Sí" : "No"}</td>
-                  <td className="px-3 py-3">{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? lead.comercialAsignado}</td>
+                  <td className="px-3 py-3">{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? (lead.comercialAsignado || "Sin asignar")}</td>
                   <td className="px-3 py-3 text-xs">{formatDateTime(lead.ultimoContacto)}</td>
                 </tr>
               ))}
@@ -1131,7 +1131,8 @@ function LeadFormModal({
         </label>
         <label>
           <span className="mb-1 block text-sm font-semibold text-slate-700">Comercial asignado</span>
-          <select className={inputClass} value={draft.comercialAsignado} onChange={(event) => update("comercialAsignado", event.target.value)}>
+          <select className={inputClass} value={draft.comercialAsignado || ""} onChange={(event) => update("comercialAsignado", event.target.value)}>
+            <option value="">Sin asignar</option>
             {users.filter(u => u.activo && (u.role === "admin" || u.role === "comercial")).map((user) => <option key={user.uid} value={user.uid}>{user.nombre}</option>)}
           </select>
         </label>
@@ -2000,7 +2001,7 @@ function CampaignsScreen({
                   campaignChatClosedCampaignId: campaign.id,
                   campaignChatArchivedAt: undefined,
                   campaignChatArchivedBy: undefined,
-                  comercialAsignado: item.comercialAsignado || state.currentUser.uid,
+                  comercialAsignado: item.comercialAsignado || "",
                   proximaAccion: "Comercial debe contactar",
                   updatedAt: now
                 }
@@ -2082,7 +2083,7 @@ function CampaignsScreen({
       campaignChatClosedCampaignId: campaign?.id,
       campaignChatArchivedAt: undefined,
       campaignChatArchivedBy: undefined,
-      comercialAsignado: lead.comercialAsignado || state.currentUser.uid,
+      comercialAsignado: lead.comercialAsignado || "",
       proximaAccion: outcome === "no_interesa" ? "No contactar salvo nueva solicitud" : "Comercial debe contactar",
       updatedAt: now
     };
@@ -2874,7 +2875,7 @@ function ContactedLeadsScreen({
               <div className="divide-y divide-slate-100">
                 {leads.map((lead) => {
                   const campaign = state.campaigns.find((item) => item.id === lead.contactadoCampaignId);
-                  const assigned = state.users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? lead.comercialAsignado;
+                  const assigned = state.users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? (lead.comercialAsignado || "Sin asignar");
                   return (
                     <div key={lead.id} className="p-4 text-sm">
                       <div className="flex items-start justify-between gap-3">
@@ -4479,9 +4480,10 @@ function InProgressLeadEditSheet({
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Comercial Asignado</label>
                 <select
                   className={inputClass}
-                  value={editForm.comercialAsignado}
+                  value={editForm.comercialAsignado || ""}
                   onChange={(e) => setEditForm({ ...editForm, comercialAsignado: e.target.value })}
                 >
+                  <option value="">Sin asignar</option>
                   {users
                     .filter((u) => u.activo && (u.role === "admin" || u.role === "comercial"))
                     .map((u) => (
