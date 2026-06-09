@@ -23,7 +23,9 @@ import {
   Tags,
   Trash2,
   Upload,
-  Users
+  Users,
+  Check,
+  Copy
 } from "lucide-react";
 import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { Sidebar, navItems, type PageId } from "./components/layout/Sidebar";
@@ -1471,6 +1473,7 @@ function CampaignsScreen({
   const [noteDraft, setNoteDraft] = useState("");
   const [pasteDraft, setPasteDraft] = useState("");
   const [pasteDirection, setPasteDirection] = useState<"inbound" | "outbound">("inbound");
+  const [copiedLeadId, setCopiedLeadId] = useState<string | null>(null);
   const campaign = state.campaigns.find((item) => item.id === selectedId) ?? state.campaigns[0];
   const allChecked = complianceItems.every((item) => checks.includes(item));
   const campaignQueue = campaign ? state.queue.filter((item) => item.campaignId === campaign.id) : [];
@@ -2384,7 +2387,37 @@ function CampaignsScreen({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold text-slate-950">{conversation.lead.nombreNegocio}</p>
-                        <p className="truncate text-xs text-slate-500">{conversation.lead.personaContacto || normalizePhone(conversation.lead.telefono)}</p>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <span className="truncate">
+                            {conversation.lead.personaContacto || normalizePhone(conversation.lead.telefono)}
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            title="Copiar teléfono"
+                            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              navigator.clipboard.writeText(normalizePhone(conversation.lead.telefono));
+                              setCopiedLeadId(conversation.lead.id);
+                              setTimeout(() => setCopiedLeadId(null), 1500);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter" && event.key !== " ") return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              navigator.clipboard.writeText(normalizePhone(conversation.lead.telefono));
+                              setCopiedLeadId(conversation.lead.id);
+                              setTimeout(() => setCopiedLeadId(null), 1500);
+                            }}
+                          >
+                            {copiedLeadId === conversation.lead.id ? (
+                              <Check size={11} className="text-emerald-500" />
+                            ) : (
+                              <Copy size={11} />
+                            )}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         <span className={`mt-0.5 h-2.5 w-2.5 rounded-full ${
@@ -2475,9 +2508,37 @@ function CampaignsScreen({
                           <h4 className="font-bold text-slate-950">{selectedConversation.lead.nombreNegocio}</h4>
                           <Badge value={conversationStatusLabel(selectedConversation.status)} />
                         </div>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {selectedConversation.lead.personaContacto || "Sin contacto"} · {normalizePhone(selectedConversation.lead.telefono)}
-                        </p>
+                        <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                          <span>
+                            {selectedConversation.lead.personaContacto || "Sin contacto"} · {normalizePhone(selectedConversation.lead.telefono)}
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            title="Copiar teléfono"
+                            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              navigator.clipboard.writeText(normalizePhone(selectedConversation.lead.telefono));
+                              setCopiedLeadId(selectedConversation.lead.id);
+                              setTimeout(() => setCopiedLeadId(null), 1500);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter" && event.key !== " ") return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              navigator.clipboard.writeText(normalizePhone(selectedConversation.lead.telefono));
+                              setCopiedLeadId(selectedConversation.lead.id);
+                              setTimeout(() => setCopiedLeadId(null), 1500);
+                            }}
+                          >
+                            {copiedLeadId === selectedConversation.lead.id ? (
+                              <Check size={11} className="text-emerald-500" />
+                            ) : (
+                              <Copy size={11} />
+                            )}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button variant="secondary" icon={<Trash2 size={16} />} onClick={() => deleteCampaignChat(selectedConversation.lead.id)} title="Limpia la cola y mensajes de esta campaña para este lead, pero lo conserva en el CRM">
