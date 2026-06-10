@@ -858,7 +858,7 @@ function LeadsScreen({
 
     return (
       text.includes(query.toLowerCase()) &&
-      (!status || lead.estado === status) &&
+      (!status || getLeadStateValue(lead) === status) &&
       (!sector || lead.sector === sector) &&
       (!city || lead.ciudad === city) &&
       (!groupId || (groupId === "no_asignado" ? lead.grupoIds.length === 0 : lead.grupoIds.includes(groupId))) &&
@@ -910,12 +910,51 @@ function LeadsScreen({
     return 0;
   });
 
+  const leadsWithDiscrepancy = leads.filter((lead) => {
+    if (lead.contactadoResultado === "dudoso_comercial" && lead.estado !== "dudoso") return true;
+    if (lead.contactadoResultado === "no_interesa" && lead.estado !== "no_interesado") return true;
+    if (lead.contactadoResultado === "interesado_comercial" && lead.estado !== "interesado") return true;
+    return false;
+  });
+
+  const handleFixStates = () => {
+    let count = 0;
+    leads.forEach((lead) => {
+      let updated = false;
+      const nextLead = { ...lead };
+      if (lead.contactadoResultado === "dudoso_comercial" && lead.estado !== "dudoso") {
+        nextLead.estado = "dudoso";
+        updated = true;
+      } else if (lead.contactadoResultado === "no_interesa" && lead.estado !== "no_interesado") {
+        nextLead.estado = "no_interesado";
+        updated = true;
+      } else if (lead.contactadoResultado === "interesado_comercial" && lead.estado !== "interesado") {
+        nextLead.estado = "interesado";
+        updated = true;
+      }
+      if (updated) {
+        onSave(nextLead);
+        count++;
+      }
+    });
+    alert(`Se han corregido y guardado ${count} leads.`);
+  };
+
   return (
     <div className="space-y-5">
       <ScreenHeader
         title="Gestión de leads"
         subtitle="CRM comercial con grupos, consentimiento, estados, notas e historial."
-        action={<Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(""))}>Nuevo lead</Button>}
+        action={
+          <div className="flex gap-2">
+            {leadsWithDiscrepancy.length > 0 && (
+              <Button variant="danger" onClick={handleFixStates}>
+                Arreglar estados ({leadsWithDiscrepancy.length})
+              </Button>
+            )}
+            <Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(""))}>Nuevo lead</Button>
+          </div>
+        }
       />
       <Card className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -964,7 +1003,7 @@ function LeadsScreen({
           </select>
           <select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">Estados</option>
-            {Array.from(new Set(leads.map((lead) => lead.estado))).map((item) => (
+            {Array.from(new Set(leads.map((lead) => getLeadStateValue(lead)))).map((item) => (
               <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
             ))}
           </select>
@@ -1038,7 +1077,7 @@ function LeadsScreen({
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap">{lead.telefono}</td>
                   <td className="px-3 py-3">{lead.email}</td>
-                  <td className="px-3 py-3"><Badge value={lead.estado} /></td>
+                  <td className="px-3 py-3"><Badge value={getLeadStateValue(lead)} /></td>
                   <td className="px-3 py-3 text-center font-medium">{lead.tieneConsentimientoWhatsapp ? "Sí" : "No"}</td>
                   <td className="px-3 py-3">{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? (lead.comercialAsignado || "Sin asignar")}</td>
                   <td className="px-3 py-3 text-xs">{formatDateTime(lead.ultimoContacto)}</td>
@@ -1142,7 +1181,7 @@ function LeadFormModal({
               if (val === "dudoso") {
                 setDraft((current) => ({
                   ...current,
-                  estado: "interesado",
+                  estado: "dudoso",
                   contactadoResultado: "dudoso_comercial",
                   contactadoAt: current.contactadoAt ?? now,
                   contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
@@ -1509,6 +1548,7 @@ const contactedCloseLabels: Record<ContactedLeadCloseStatus, string> = {
 
 function contactedLeadStatus(outcome: ContactedLeadOutcome): Lead["estado"] {
   if (outcome === "no_interesa") return "no_interesado";
+  if (outcome === "dudoso_comercial") return "dudoso";
   return "interesado";
 }
 
@@ -4337,8 +4377,8 @@ function Info({ label, value }: { label: string; value: string | number }) {
 }
 
 function getLeadStateLabel(lead: Lead) {
+  if (lead.estado === "dudoso" || lead.contactadoResultado === "dudoso_comercial") return "Dudoso";
   if (lead.contactadoResultado === "interesado_comercial") return "Interesado";
-  if (lead.contactadoResultado === "dudoso_comercial") return "Dudoso";
   if (lead.contactadoResultado === "no_interesa") return "No interesa";
   if (lead.estado === "campaña_enviada") return "En campaña";
   if (lead.estado === "sin_respuesta") return "Sin respuesta";
@@ -4348,8 +4388,8 @@ function getLeadStateLabel(lead: Lead) {
 }
 
 function getLeadStateValue(lead: Lead) {
+  if (lead.estado === "dudoso" || lead.contactadoResultado === "dudoso_comercial") return "dudoso";
   if (lead.contactadoResultado === "interesado_comercial") return "interesado";
-  if (lead.contactadoResultado === "dudoso_comercial") return "dudoso";
   if (lead.contactadoResultado === "no_interesa") return "no_interesa";
   if (lead.estado === "campaña_enviada") return "campaña_enviada";
   if (lead.estado === "sin_respuesta") return "sin_respuesta";
@@ -4654,7 +4694,7 @@ function InProgressLeadEditSheet({
                     if (val === "dudoso") {
                       setEditForm({
                         ...editForm,
-                        estado: "interesado",
+                        estado: "dudoso",
                         contactadoResultado: "dudoso_comercial"
                       });
                     } else if (val === "interesado") {
@@ -4984,7 +5024,7 @@ function InProgressLeadsScreen({
 
   const inProgressLeads = state.leads.filter((lead) => {
     const inActiveCampaign = lead.estado === "campaña_enviada" || lead.estado === "sin_respuesta";
-    const isDudoso = lead.contactadoResultado === "dudoso_comercial";
+    const isDudoso = lead.contactadoResultado === "dudoso_comercial" || lead.estado === "dudoso";
     const isInteresado = lead.contactadoResultado === "interesado_comercial" || lead.estado === "interesado";
     const isNoInteresa = lead.contactadoResultado === "no_interesa" || lead.estado === "no_interesado";
     return (inActiveCampaign || isDudoso || isInteresado || isNoInteresa) && 

@@ -6,6 +6,7 @@ export type LeadStatus =
   | "consentimiento_obtenido"
   | "campaña_enviada"
   | "interesado"
+  | "dudoso"
   | "no_interesado"
   | "demo_agendada"
   | "convertido"

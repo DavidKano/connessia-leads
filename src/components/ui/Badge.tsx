@@ -7,6 +7,7 @@ const statusColors: Record<string, string> = {
   consentimiento_obtenido: "bg-emerald-100 text-emerald-800",
   campaña_enviada: "bg-blue-100 text-blue-800",
   interesado: "bg-connessia-100 text-connessia-800",
+  dudoso: "bg-amber-100 text-amber-800",
   no_interesado: "bg-slate-200 text-slate-700",
   demo_agendada: "bg-violet-100 text-violet-800",
   convertido: "bg-green-100 text-green-800",
