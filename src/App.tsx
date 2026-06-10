@@ -910,35 +910,7 @@ function LeadsScreen({
     return 0;
   });
 
-  const leadsWithDiscrepancy = leads.filter((lead) => {
-    if (lead.contactadoResultado === "dudoso_comercial" && lead.estado !== "dudoso") return true;
-    if (lead.contactadoResultado === "no_interesa" && lead.estado !== "no_interesado") return true;
-    if (lead.contactadoResultado === "interesado_comercial" && lead.estado !== "interesado") return true;
-    return false;
-  });
 
-  const handleFixStates = () => {
-    let count = 0;
-    leads.forEach((lead) => {
-      let updated = false;
-      const nextLead = { ...lead };
-      if (lead.contactadoResultado === "dudoso_comercial" && lead.estado !== "dudoso") {
-        nextLead.estado = "dudoso";
-        updated = true;
-      } else if (lead.contactadoResultado === "no_interesa" && lead.estado !== "no_interesado") {
-        nextLead.estado = "no_interesado";
-        updated = true;
-      } else if (lead.contactadoResultado === "interesado_comercial" && lead.estado !== "interesado") {
-        nextLead.estado = "interesado";
-        updated = true;
-      }
-      if (updated) {
-        onSave(nextLead);
-        count++;
-      }
-    });
-    alert(`Se han corregido y guardado ${count} leads.`);
-  };
 
   return (
     <div className="space-y-5">
@@ -947,11 +919,6 @@ function LeadsScreen({
         subtitle="CRM comercial con grupos, consentimiento, estados, notas e historial."
         action={
           <div className="flex gap-2">
-            {leadsWithDiscrepancy.length > 0 && (
-              <Button variant="danger" onClick={handleFixStates}>
-                Arreglar estados ({leadsWithDiscrepancy.length})
-              </Button>
-            )}
             <Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(""))}>Nuevo lead</Button>
           </div>
         }
@@ -1576,6 +1543,7 @@ function CampaignsScreen({
   const [pasteDraft, setPasteDraft] = useState("");
   const [pasteDirection, setPasteDirection] = useState<"inbound" | "outbound">("inbound");
   const [copiedLeadId, setCopiedLeadId] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const campaign = state.campaigns.find((item) => item.id === selectedId) ?? state.campaigns[0];
   const allChecked = complianceItems.every((item) => checks.includes(item));
   const campaignQueue = campaign ? state.queue.filter((item) => item.campaignId === campaign.id) : [];
@@ -1684,6 +1652,7 @@ function CampaignsScreen({
   const waitingCount = conversations.filter((item) => item.status === "primer_mensaje" || item.status === "segundo_mensaje").length;
   const blockedCount = conversations.filter((item) => item.status === "bloqueado" || item.status === "revisar").length;
   const selectedConversation = conversations.find((item) => item.lead.id === selectedChatId) ?? conversations[0];
+  const pendingItem = selectedConversation?.pending;
   const selectedTimeline = selectedConversation
     ? [
         ...selectedConversation.messages.map((message) => ({
@@ -1700,7 +1669,8 @@ function CampaignsScreen({
                 : "WhatsApp pegado · Equipo"
               : message.direction === "inbound"
                 ? "Cliente"
-                : "Tu"
+                : "Tu",
+          isPendingQueueItem: false
         })),
         ...selectedConversation.queue
           .filter((item) => item.status === "pending" || item.status === "processing")
@@ -1710,7 +1680,8 @@ function CampaignsScreen({
             kind: "message" as const,
             body: queueComposerBody(item),
             at: item.scheduledAt,
-            label: item.status === "processing" ? "Abierto en WhatsApp" : "Preparado"
+            label: item.status === "processing" ? "Abierto en WhatsApp" : "Preparado",
+            isPendingQueueItem: true
           }))
       ].sort((a, b) => a.at.localeCompare(b.at))
     : [];
@@ -2664,7 +2635,37 @@ function CampaignsScreen({
                               : "bg-[#d9fdd3] text-slate-900"
                         }`}>
                           <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
-                            <span>{message.label}</span>
+                            <span className="flex items-center gap-1.5">
+                              {message.label}
+                              {message.isPendingQueueItem && (
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  title="Copiar mensaje al portapapeles"
+                                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    navigator.clipboard.writeText(message.body);
+                                    setCopiedMessageId(message.id);
+                                    setTimeout(() => setCopiedMessageId(null), 1500);
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key !== "Enter" && event.key !== " ") return;
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    navigator.clipboard.writeText(message.body);
+                                    setCopiedMessageId(message.id);
+                                    setTimeout(() => setCopiedMessageId(null), 1500);
+                                  }}
+                                >
+                                  {copiedMessageId === message.id ? (
+                                    <Check size={11} className="text-emerald-500" />
+                                  ) : (
+                                    <Copy size={11} />
+                                  )}
+                                </span>
+                              )}
+                            </span>
                             <span>{formatDateTime(message.at)}</span>
                           </div>
                           <p className="whitespace-pre-wrap">{message.body}</p>
@@ -2679,20 +2680,32 @@ function CampaignsScreen({
                   </div>
                   <div className="border-t border-slate-200 bg-white p-4">
                     <div className="flex flex-wrap gap-2">
-                      {selectedConversation.pending && (
+                      {pendingItem && (
                         <>
-                          <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => openQueueItem(selectedConversation.pending as QueueItem)}>
+                          <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => openQueueItem(pendingItem)}>
                             Abrir chat
                           </Button>
-                          {selectedConversation.pending.mediaUrl && (
-                            <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => window.open(selectedConversation.pending?.mediaUrl, "_blank", "noopener,noreferrer")}>
+                          <Button
+                            variant="secondary"
+                            icon={copiedMessageId === pendingItem.id ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
+                            onClick={() => {
+                              const body = queueComposerBody(pendingItem);
+                              navigator.clipboard.writeText(body);
+                              setCopiedMessageId(pendingItem.id);
+                              setTimeout(() => setCopiedMessageId(null), 1500);
+                            }}
+                          >
+                            {copiedMessageId === pendingItem.id ? "Copiado" : "Copiar mensaje"}
+                          </Button>
+                          {pendingItem.mediaUrl && (
+                            <Button variant="secondary" icon={<ExternalLink size={16} />} onClick={() => window.open(pendingItem.mediaUrl, "_blank", "noopener,noreferrer")}>
                               Abrir asset
                             </Button>
                           )}
-                          <Button variant="secondary" icon={<ClipboardCheck size={16} />} onClick={() => markQueueItemSent(selectedConversation.pending as QueueItem)}>
+                          <Button variant="secondary" icon={<ClipboardCheck size={16} />} onClick={() => markQueueItemSent(pendingItem)}>
                             Marcar enviado
                           </Button>
-                          <Button icon={<Send size={16} />} onClick={() => markQueueItemSent(selectedConversation.pending as QueueItem, true)}>
+                          <Button icon={<Send size={16} />} onClick={() => markQueueItemSent(pendingItem, true)}>
                             Enviado y siguiente
                           </Button>
                         </>
