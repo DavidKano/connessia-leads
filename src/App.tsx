@@ -149,6 +149,7 @@ function emptyCampaign(userId = "admin-demo"): Campaign {
     diasParaSeguimiento: 3,
     dailyLimit: 80,
     createdBy: userId,
+    excluirContactados: false,
     createdAt: now,
     updatedAt: now
   };
@@ -2345,6 +2346,7 @@ function CampaignsScreen({
                 <Info label="Mensajes post SI" value={`${campaignConfiguredSteps(campaign).length} configurado(s)`} />
                 <Info label="Seguimiento sin respuesta" value={`${campaign.maxSeguimientos} tras ${formatFollowupDelay(campaign)}`} />
                 <Info label="Plantilla inicial" value={state.templates.find((tpl) => tpl.id === campaign.plantillaInicialId)?.nombre ?? ""} />
+                <Info label="Excluir contactados" value={campaign.excluirContactados ? "Sí (evita re-contactar)" : "No"} />
               </div>
               <div className="rounded-lg border border-slate-200 p-4">
                 <h4 className="font-bold text-slate-950">Grupos incluidos</h4>
@@ -3427,6 +3429,17 @@ function CampaignFormModal({
           </div>
         </div>
         <Field label="Seguimientos maximos" type="number" value={String(draft.maxSeguimientos)} onChange={(value) => setDraft({ ...draft, maxSeguimientos: Number(value) || 0 })} />
+        <label className="flex items-center gap-2.5 md:col-span-2 py-2 select-none">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-slate-300 text-connessia-600 focus:ring-connessia-500"
+            checked={draft.excluirContactados || false}
+            onChange={(event) => setDraft({ ...draft, excluirContactados: event.target.checked })}
+          />
+          <span className="text-sm font-semibold text-slate-700">
+            Excluir contactos ya contactados en otras campañas
+          </span>
+        </label>
         <label className="md:col-span-2">
           <span className="mb-2 block text-sm font-semibold text-slate-700">Grupos de leads</span>
           <div className="grid gap-2 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">

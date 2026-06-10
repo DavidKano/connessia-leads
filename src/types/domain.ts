@@ -153,6 +153,7 @@ export interface Campaign {
   diasParaSeguimiento: number;
   dailyLimit?: number;
   createdBy: string;
+  excluirContactados?: boolean;
   createdAt: string;
   updatedAt: string;
 }

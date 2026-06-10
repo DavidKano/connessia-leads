@@ -210,10 +210,20 @@ export function enqueueCampaign(state: EngineState, campaignId: string): EngineR
   const sendableLeads = selectedLeads.filter((lead) => !canSendToLead(lead, state.doNotContact));
   const alreadyHandledLeadIds = new Set([
     ...state.queue
-      .filter((item) => item.campaignId === campaign.id && ["pending", "processing", "sent"].includes(item.status))
+      .filter((item) => {
+        if (item.campaignId === campaign.id) {
+          return ["pending", "processing", "sent"].includes(item.status);
+        }
+        return Boolean(campaign.excluirContactados && ["pending", "processing", "sent"].includes(item.status));
+      })
       .map((item) => item.leadId),
     ...state.messages
-      .filter((message) => message.campaignId === campaign.id && message.direction === "outbound" && message.status === "sent")
+      .filter((message) => {
+        if (message.campaignId === campaign.id) {
+          return message.direction === "outbound" && message.status === "sent";
+        }
+        return Boolean(campaign.excluirContactados && message.direction === "outbound" && message.status === "sent");
+      })
       .map((message) => message.leadId)
   ]);
   const targetLeads = sendableLeads.filter((lead) => !alreadyHandledLeadIds.has(lead.id));
