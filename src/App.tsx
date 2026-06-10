@@ -1479,6 +1479,17 @@ function isNoReplyQueueItem(item: QueueItem, campaign?: Campaign) {
   return item.campaignStep === 2 || Boolean(campaign?.plantillaSeguimientoId && item.templateId === campaign.plantillaSeguimientoId);
 }
 
+function campaignMatchesLead(campaign: Campaign | undefined, lead: Lead) {
+  if (!campaign) return false;
+  const selectedByGroup =
+    campaign.segmento.grupoIds.length > 0 &&
+    campaign.segmento.grupoIds.some((groupId) => lead.grupoIds.includes(groupId));
+  const zoneMatch = campaign.segmento.zonas.length === 0 || campaign.segmento.zonas.includes(lead.zona);
+  const sectorMatch = campaign.segmento.sectores.length === 0 || campaign.segmento.sectores.includes(lead.sector);
+  const selectedByLegacySegment = campaign.segmento.grupoIds.length === 0 && zoneMatch && sectorMatch;
+  return selectedByGroup || selectedByLegacySegment;
+}
+
 function campaignConfiguredSteps(campaign?: Campaign) {
   if (!campaign) return [];
   return [
@@ -1548,9 +1559,20 @@ function CampaignsScreen({
   const allChecked = complianceItems.every((item) => checks.includes(item));
   const campaignQueue = campaign ? state.queue.filter((item) => item.campaignId === campaign.id) : [];
   const campaignMessages = campaign ? state.messages.filter((message) => message.campaignId === campaign.id) : [];
+  const segmentLeadIds = campaign
+    ? state.leads
+        .filter((lead) =>
+          !lead.contactadoResultado &&
+          !lead.contactadoCerradoAt &&
+          ["nuevo", "pendiente_consentimiento", "consentimiento_obtenido", "campaña_enviada", "sin_respuesta"].includes(lead.estado) &&
+          campaignMatchesLead(campaign, lead)
+        )
+        .map((lead) => lead.id)
+    : [];
   const conversationLeadIds = Array.from(new Set([
     ...campaignQueue.map((item) => item.leadId),
-    ...campaignMessages.map((message) => message.leadId)
+    ...campaignMessages.map((message) => message.leadId),
+    ...segmentLeadIds
   ]));
   const allConversations = conversationLeadIds
     .map((leadId) => {
@@ -1690,6 +1712,62 @@ function CampaignsScreen({
   async function activate() {
     const result = enqueueCampaign(state, campaign.id);
     updateState(result.state as typeof state, result.notice);
+  }
+
+  function prepareInitialMessage(leadId?: string) {
+    if (!campaign) return;
+    const conversation = leadId
+      ? allConversations.find((item) => item.lead.id === leadId)
+      : selectedConversation;
+    if (!conversation) return;
+    if (conversation.pending || conversation.latestSent || conversation.lastOutbound) {
+      updateState(state, "Ese lead ya tiene un mensaje preparado o enviado en esta campaña.");
+      return;
+    }
+
+    const template = state.templates.find((item) => item.id === campaign.plantillaInicialId);
+    if (!template || template.estado !== "aprobada") {
+      updateState(state, "La plantilla inicial debe estar aprobada antes de preparar el primer mensaje.");
+      return;
+    }
+
+    const blockedReason = canSendToLead(conversation.lead, state.doNotContact);
+    if (blockedReason) {
+      updateState(state, `No se puede preparar el mensaje: ${blockedReason}`);
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const queueItem: QueueItem = {
+      id: `queue-${crypto.randomUUID()}`,
+      leadId: conversation.lead.id,
+      campaignId: campaign.id,
+      phone: normalizePhone(conversation.lead.telefono),
+      messageType: "template",
+      templateId: template.id,
+      body: renderTemplate(template, conversation.lead, state.settings),
+      status: "pending",
+      scheduledAt: now,
+      retries: 0
+    };
+
+    updateState(
+      {
+        ...state,
+        queue: [...state.queue, queueItem],
+        leads: state.leads.map((lead) =>
+          lead.id === conversation.lead.id
+            ? {
+                ...lead,
+                estado: "campaña_enviada",
+                proximaAccion: "Enviar primer mensaje",
+                updatedAt: now
+              }
+            : lead
+        )
+      },
+      `Primer mensaje preparado para ${conversation.lead.nombreNegocio}.`
+    );
   }
 
   function enqueueNoReplyFollowups() {
@@ -2787,6 +2865,11 @@ function CampaignsScreen({
                             Baja / no interesa
                           </Button>
                         </>
+                      )}
+                      {!selectedConversation.pending && !selectedConversation.latestSent && !selectedConversation.lastOutbound && !selectedConversation.lastInbound && !selectedConversation.blockedReason && (
+                        <Button icon={<Send size={16} />} onClick={() => prepareInitialMessage()}>
+                          Preparar primer mensaje
+                        </Button>
                       )}
                       {!selectedConversation.pending && !selectedConversation.lastInbound && selectedConversation.blockedReason && (
                         <span className="inline-flex min-h-10 items-center rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950">
