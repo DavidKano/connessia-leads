@@ -2637,7 +2637,7 @@ function CampaignsScreen({
                           <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-500">
                             <span className="flex items-center gap-1.5">
                               {message.label}
-                              {message.isPendingQueueItem && (
+                              {message.kind !== "internal_note" && (
                                 <span
                                   role="button"
                                   tabIndex={0}
