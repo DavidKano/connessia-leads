@@ -795,17 +795,59 @@ function LeadsScreen({
   onSaveGroup: (group: LeadGroup) => void;
   onDeleteGroup: (id: string) => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
-  const [sector, setSector] = useState("");
-  const [city, setCity] = useState("");
-  const [groupId, setGroupId] = useState("");
-  const [consent, setConsent] = useState("");
+  const [query, setQuery] = useState(() => localStorage.getItem("leads_filter_query") ?? "");
+  const [status, setStatus] = useState(() => localStorage.getItem("leads_filter_status") ?? "");
+  const [sector, setSector] = useState(() => localStorage.getItem("leads_filter_sector") ?? "");
+  const [city, setCity] = useState(() => localStorage.getItem("leads_filter_city") ?? "");
+  const [groupId, setGroupId] = useState(() => localStorage.getItem("leads_filter_groupId") ?? "");
+  const [consent, setConsent] = useState(() => localStorage.getItem("leads_filter_consent") ?? "");
   const [commercial, setCommercial] = useState("");
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [editing, setEditing] = useState<Lead | null>(null);
   const [editingGroup, setEditingGroup] = useState<LeadGroup | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem("leads_filter_query", query);
+  }, [query]);
+
+  useEffect(() => {
+    localStorage.setItem("leads_filter_status", status);
+  }, [status]);
+
+  useEffect(() => {
+    localStorage.setItem("leads_filter_sector", sector);
+  }, [sector]);
+
+  useEffect(() => {
+    localStorage.setItem("leads_filter_city", city);
+  }, [city]);
+
+  useEffect(() => {
+    localStorage.setItem("leads_filter_groupId", groupId);
+  }, [groupId]);
+
+  useEffect(() => {
+    localStorage.setItem("leads_filter_consent", consent);
+  }, [consent]);
+
+  useEffect(() => {
+    const handleHardReload = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey && event.key === "F5") ||
+        (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "r")
+      ) {
+        localStorage.removeItem("leads_filter_query");
+        localStorage.removeItem("leads_filter_status");
+        localStorage.removeItem("leads_filter_sector");
+        localStorage.removeItem("leads_filter_city");
+        localStorage.removeItem("leads_filter_groupId");
+        localStorage.removeItem("leads_filter_consent");
+      }
+    };
+    window.addEventListener("keydown", handleHardReload);
+    return () => window.removeEventListener("keydown", handleHardReload);
+  }, []);
 
   const filtered = leads.filter((lead) => {
     const groupNames = groups.filter((group) => lead.grupoIds.includes(group.id)).map((group) => group.nombre).join(" ");
@@ -818,7 +860,7 @@ function LeadsScreen({
       (!status || lead.estado === status) &&
       (!sector || lead.sector === sector) &&
       (!city || lead.ciudad === city) &&
-      (!groupId || lead.grupoIds.includes(groupId)) &&
+      (!groupId || (groupId === "no_asignado" ? lead.grupoIds.length === 0 : lead.grupoIds.includes(groupId))) &&
       matchConsent
     );
   });
@@ -911,6 +953,7 @@ function LeadsScreen({
           </select>
           <select className={inputClass} value={groupId} onChange={(event) => setGroupId(event.target.value)}>
             <option value="">Grupos</option>
+            <option value="no_asignado">No asignado</option>
             {groups.map((group) => <option key={group.id} value={group.id}>{group.nombre}</option>)}
           </select>
           <select className={inputClass} value={consent} onChange={(event) => setConsent(event.target.value)}>
@@ -925,6 +968,24 @@ function LeadsScreen({
             ))}
           </select>
         </div>
+        {(query || sector || city || groupId || consent || status) && (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setStatus("");
+                setSector("");
+                setCity("");
+                setGroupId("");
+                setConsent("");
+              }}
+              className="text-xs font-semibold text-red-600 hover:text-red-800 transition"
+            >
+              Limpiar filtros
+            </button>
+          </div>
+        )}
       </Card>
       <Card className="overflow-hidden">
         <div className="overflow-x-auto table-scroll">
