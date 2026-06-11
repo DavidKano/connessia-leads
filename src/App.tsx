@@ -2088,13 +2088,12 @@ function CampaignsScreen({
       messageType: "template",
       templateId: template.id,
       body: renderTemplate(template, conversation.lead, state.settings),
-      status: "processing",
+      status: "pending",
       scheduledAt: now,
       retries: 0,
       campaignStep: 2
     };
 
-    openWhatsAppWebComposer(noReplyItem.phone, queueComposerBody(noReplyItem));
     updateState(
       {
         ...state,
@@ -2102,7 +2101,7 @@ function CampaignsScreen({
           ...state.queue,
           {
             ...noReplyItem,
-            errorMessage: "Mensaje de no contesta abierto en WhatsApp Web. Confirma el envio manualmente."
+            errorMessage: "Mensaje de no contesta preparado. Confirma o abre en WhatsApp Web manualmente."
           }
         ],
         leads: state.leads.map((lead) =>
@@ -2110,13 +2109,13 @@ function CampaignsScreen({
             ? {
                 ...lead,
                 estado: "sin_respuesta",
-                proximaAccion: "Enviar segundo mensaje cri cri",
+                proximaAccion: "Enviar segundo mensaje",
                 updatedAt: now
               }
             : lead
         )
       },
-      `Mensaje de no contesta abierto para ${conversation.lead.nombreNegocio}.`
+      `Mensaje de no contesta preparado para ${conversation.lead.nombreNegocio}.`
     );
   }
 
