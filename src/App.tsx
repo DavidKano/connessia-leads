@@ -2377,6 +2377,13 @@ function CampaignsScreen({
     setPasteDraft("");
   }
 
+  const noReplyTemplate = campaign?.plantillaSeguimientoId
+    ? state.templates.find((t) => t.id === campaign.plantillaSeguimientoId)
+    : undefined;
+  const noReplyButtonLabel = noReplyTemplate
+    ? `No contesta, enviar ${noReplyTemplate.nombre}`
+    : "No contesta, enviar cri cri";
+
   return (
     <div className="space-y-5">
       <ScreenHeader title="Campañas" subtitle="Constructor sencillo con checklist legal, segmentación y cola de envíos." />
@@ -2805,7 +2812,7 @@ function CampaignsScreen({
                           ) : (
                             <>
                               <Button variant="secondary" onClick={() => prepareNoReplyMessage()}>
-                                No contesta, enviar cri cri
+                                {noReplyButtonLabel}
                               </Button>
                               <Button onClick={() => registerCampaignReply(selectedConversation.lead, "SI")}>
                                 Contesta SI
