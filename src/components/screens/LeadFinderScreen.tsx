@@ -196,17 +196,87 @@ export function LeadFinderScreen() {
     return nextCount;
   };
 
-  const geocodePostalCode = (cp: string): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      const geocoder = new (window as any).google.maps.Geocoder();
-      geocoder.geocode({ address: cp + ', España' }, (results: any, status: any) => {
-        if (status === 'OK' && results[0]) {
-          resolve(results[0].geometry.location);
-        } else {
-          reject(new Error("No se encontró el código postal."));
-        }
+  const formatGeocodeError = (status: string) => {
+    switch (status) {
+      case "REQUEST_DENIED":
+        return "Google Maps rechazó la ubicación del código postal.";
+      case "OVER_QUERY_LIMIT":
+        return "Google Maps ha devuelto límite de cuota al ubicar el código postal.";
+      case "INVALID_REQUEST":
+        return "La petición para ubicar el código postal no es válida.";
+      case "ZERO_RESULTS":
+        return "No se encontró el código postal en España.";
+      default:
+        return `No se pudo ubicar el código postal. Google devolvió: ${status || "sin estado"}.`;
+    }
+  };
+
+  const formatPlacesError = (status: string) => {
+    switch (status) {
+      case (window as any).google.maps.places.PlacesServiceStatus.REQUEST_DENIED:
+        return "Google Maps rechazó la búsqueda de negocios. Revisa que la API key permita Maps JavaScript API y Places API para esta web.";
+      case (window as any).google.maps.places.PlacesServiceStatus.OVER_QUERY_LIMIT:
+        return "Google Maps ha devuelto límite de cuota al buscar negocios.";
+      case (window as any).google.maps.places.PlacesServiceStatus.INVALID_REQUEST:
+        return "La petición de búsqueda de negocios no es válida.";
+      case (window as any).google.maps.places.PlacesServiceStatus.ZERO_RESULTS:
+        return "No se encontraron negocios para ese sector y código postal.";
+      default:
+        return `Places Search falló: ${status || "sin estado"}`;
+    }
+  };
+
+  const geocodePostalCode = async (cp: string): Promise<any> => {
+    const cleanPostalCode = cp.trim();
+
+    if (!/^\d{5}$/.test(cleanPostalCode)) {
+      throw new Error("Introduce un código postal español válido de 5 dígitos.");
+    }
+
+    const geocoder = new (window as any).google.maps.Geocoder();
+    const requests = [
+      {
+        componentRestrictions: {
+          country: "ES",
+          postalCode: cleanPostalCode,
+        },
+        region: "es",
+      },
+      {
+        address: `${cleanPostalCode}, España`,
+        region: "es",
+      },
+      {
+        address: `código postal ${cleanPostalCode}, España`,
+        region: "es",
+      },
+    ];
+
+    let lastStatus = "";
+
+    for (const request of requests) {
+      const result = await new Promise<any | null>((resolve, reject) => {
+        geocoder.geocode(request, (results: any[] | null, status: string) => {
+          lastStatus = status;
+
+          if (status === "OK" && results?.[0]) {
+            resolve(results[0]);
+            return;
+          }
+
+          if (status !== "ZERO_RESULTS") {
+            reject(new Error(formatGeocodeError(status)));
+            return;
+          }
+
+          resolve(null);
+        });
       });
-    });
+
+      if (result) return result.geometry.location;
+    }
+
+    throw new Error(formatGeocodeError(lastStatus || "ZERO_RESULTS"));
   };
 
   const getPlaceDetails = (service: any, placeId: string): Promise<any> => {
@@ -265,7 +335,52 @@ export function LeadFinderScreen() {
           } else if (status === (window as any).google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
             resolve(); 
           } else {
-            reject(new Error(`Places Search falló: ${status}`));
+            reject(new Error(formatPlacesError(status)));
+          }
+        });
+      };
+      
+      fetchPage(request);
+    });
+  };
+
+  const performTextSearch = (postalCodeQuery: string, keyword: string) => {
+    return new Promise<void>((resolve, reject) => {
+      const mapDiv = document.createElement('div');
+      const spainCenter = new (window as any).google.maps.LatLng(40.4168, -3.7038);
+      const map = new (window as any).google.maps.Map(mapDiv, { center: spainCenter, zoom: 6 });
+      const service = new (window as any).google.maps.places.PlacesService(map);
+      
+      const request = {
+        query: `${keyword} ${postalCodeQuery} España`,
+        region: 'es',
+      };
+      
+      const fetchPage = (req: any) => {
+        service.textSearch(req, async (results: any, status: any, pagination: any) => {
+          incrementUsage(1);
+          if (status === (window as any).google.maps.places.PlacesServiceStatus.OK && results) {
+            setLoadingMsg(`Extrayendo detalles de ${results.length} negocios para "${keyword}"...`);
+            
+            for (let place of results) {
+              try {
+                const details = await getPlaceDetails(service, place.place_id);
+                addLead(details, keyword);
+              } catch (e) {
+                addLead(place, keyword);
+              }
+            }
+            
+            if (pagination && pagination.hasNextPage && currentUsageCount() < apiLimit) {
+              setLoadingMsg(`Paginando resultados para "${keyword}"...`);
+              setTimeout(() => pagination.nextPage(), 2000);
+            } else {
+              resolve();
+            }
+          } else if (status === (window as any).google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+            resolve(); 
+          } else {
+            reject(new Error(formatPlacesError(status)));
           }
         });
       };
@@ -363,7 +478,8 @@ export function LeadFinderScreen() {
       return;
     }
 
-    if (!postalCode) return;
+    const cleanPostalCode = postalCode.trim();
+    if (!cleanPostalCode) return;
     if (searchMode === 'especifico' && !businessType) return;
     if (currentUsageCount() >= apiLimit) {
       alert(`Límite de peticiones alcanzado (${apiLimit}).`);
@@ -375,15 +491,31 @@ export function LeadFinderScreen() {
     setLoadingMsg("Ubicando código postal...");
 
     try {
-      const location = await geocodePostalCode(postalCode);
-      incrementUsage(1);
+      let location: any | null = null;
+
+      try {
+        location = await geocodePostalCode(cleanPostalCode);
+        incrementUsage(1);
+      } catch (locationError) {
+        console.warn("No se pudo ubicar el código postal, se usará búsqueda por texto en Google Places.", locationError);
+      }
 
       if (searchMode === 'especifico') {
-        await performNearbySearch(location, businessType);
+        setLoadingMsg(location ? `Buscando "${businessType}" cerca del CP ${cleanPostalCode}...` : `Buscando "${businessType}" en CP ${cleanPostalCode}...`);
+        if (location) {
+          await performNearbySearch(location, businessType);
+        } else {
+          await performTextSearch(cleanPostalCode, businessType);
+        }
       } else {
         for (const keyword of masivoKeywords) {
           if (currentUsageCount() >= apiLimit) break;
-          await performNearbySearch(location, keyword);
+          setLoadingMsg(location ? `Buscando "${keyword}" cerca del CP ${cleanPostalCode}...` : `Buscando "${keyword}" en CP ${cleanPostalCode}...`);
+          if (location) {
+            await performNearbySearch(location, keyword);
+          } else {
+            await performTextSearch(cleanPostalCode, keyword);
+          }
         }
       }
     } catch (error: any) {

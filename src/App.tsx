@@ -12,6 +12,7 @@ import {
   Edit3,
   ExternalLink,
   FileUp,
+  Download,
   MessageCircle,
   PauseCircle,
   PlayCircle,
@@ -57,6 +58,39 @@ const complianceItems = [
   "Confirmo que no se enviará a contactos excluidos.",
   "Confirmo que no se usará WhatsApp para spam."
 ];
+
+async function exportLeadEmailsForAutomation(leads: Lead[]) {
+  const rows = leads
+    .filter((lead) => lead.email.trim())
+    .map((lead) => ({
+      Nombre: lead.personaContacto.trim() || lead.nombreNegocio.trim(),
+      Email: lead.email.trim().toLowerCase(),
+      Empresa: lead.nombreNegocio.trim(),
+      Enviado: "No"
+    }));
+
+  if (rows.length === 0) {
+    alert("No hay leads con email para exportar.");
+    return;
+  }
+
+  const XLSX = await import("xlsx");
+  const worksheet = XLSX.utils.json_to_sheet(rows, {
+    header: ["Nombre", "Email", "Empresa", "Enviado"]
+  });
+
+  worksheet["!cols"] = [
+    { wch: 28 },
+    { wch: 36 },
+    { wch: 34 },
+    { wch: 12 }
+  ];
+  worksheet["!autofilter"] = { ref: `A1:D${rows.length + 1}` };
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Leads email");
+  XLSX.writeFile(workbook, "lista_correos_connessia.xlsx");
+}
 
 function emptyLead(assignedTo = ""): Lead {
   const now = new Date().toISOString();
@@ -919,6 +953,9 @@ function LeadsScreen({
         subtitle="CRM comercial con grupos, consentimiento, estados, notas e historial."
         action={
           <div className="flex gap-2">
+            <Button variant="secondary" icon={<Download size={18} />} onClick={() => exportLeadEmailsForAutomation(leads)}>
+              Exportar emails
+            </Button>
             <Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(""))}>Nuevo lead</Button>
           </div>
         }
