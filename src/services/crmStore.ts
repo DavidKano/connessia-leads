@@ -563,6 +563,63 @@ export function useCrmStore() {
     });
   }
 
+  function updateLeadEmailSearchResults(results: Array<{ id: string; email?: string; status?: string; pages?: number }>) {
+    const normalizedResults = new Map(
+      results
+        .map((result) => [
+          result.id,
+          {
+            email: (result.email ?? "").trim().toLowerCase(),
+            status: (result.status ?? "").trim(),
+            pages: Number(result.pages ?? 0)
+          }
+        ] as const)
+        .filter(([id]) => Boolean(id))
+    );
+
+    if (normalizedResults.size === 0) {
+      setToast("No se recibieron resultados de busqueda de emails.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    let foundCount = 0;
+    let attemptedWithoutEmailCount = 0;
+    const updatedLeads: Lead[] = [];
+
+    const nextLeads = state.leads.map((lead) => {
+      const result = normalizedResults.get(lead.id);
+      if (!result) return lead;
+
+      const hasNewEmail = result.email.includes("@") && !lead.email.trim();
+      const updatedLead: Lead = {
+        ...lead,
+        email: hasNewEmail ? result.email : lead.email,
+        emailSearchAttemptedAt: now,
+        emailSearchStatus: result.status || (hasNewEmail ? "encontrado" : "sin email visible"),
+        emailSearchPages: Number.isFinite(result.pages) ? result.pages : lead.emailSearchPages,
+        updatedAt: now
+      };
+
+      if (hasNewEmail) foundCount += 1;
+      else if (!lead.email.trim()) attemptedWithoutEmailCount += 1;
+
+      updatedLeads.push(updatedLead);
+      return updatedLead;
+    });
+
+    updateState(
+      { ...state, leads: nextLeads },
+      `${foundCount} email(s) encontrados. ${attemptedWithoutEmailCount} lead(s) marcados como intentados.`
+    );
+
+    Promise.allSettled(updatedLeads.map(saveLeadToFirestore)).then((saveResults) => {
+      if (saveResults.some((result) => result.status === "rejected")) {
+        setToast("Resultados de email guardados localmente, pero alguno no se guardo en Firestore. Revisa Firebase.");
+      }
+    });
+  }
+
   function markLeadEmailAutomationExported(leadIds: string[]) {
     const ids = new Set(leadIds);
     if (ids.size === 0) return;
@@ -840,6 +897,7 @@ export function useCrmStore() {
     importLeads,
     updateLeadStatus,
     updateLeadEmails,
+    updateLeadEmailSearchResults,
     markLeadEmailAutomationExported,
     updateSettings,
     addDoNotContact,

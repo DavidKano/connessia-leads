@@ -103,6 +103,9 @@ export interface Lead {
   seguimiento?: "pendiente" | "en_curso" | "finalizado" | "no_contesta";
   cif?: string;
   emailAutomationExportedAt?: string;
+  emailSearchAttemptedAt?: string;
+  emailSearchStatus?: string;
+  emailSearchPages?: number;
   createdAt: string;
   updatedAt: string;
 }

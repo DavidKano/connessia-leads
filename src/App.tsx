@@ -59,6 +59,13 @@ const complianceItems = [
   "Confirmo que no se usará WhatsApp para spam."
 ];
 
+type LeadEmailSearchResult = {
+  id: string;
+  email?: string;
+  status?: string;
+  pages?: number;
+};
+
 async function exportLeadEmailsForAutomation(leads: Lead[], onMarkExported: (leadIds: string[]) => void) {
   const exportableLeads = leads.filter((lead) => lead.email.trim() && !lead.emailAutomationExportedAt);
   const rows = exportableLeads.map((lead) => ({
@@ -94,7 +101,7 @@ async function exportLeadEmailsForAutomation(leads: Lead[], onMarkExported: (lea
 
 async function exportLeadWebsitesForEmailSearch(leads: Lead[]) {
   const rows = leads
-    .filter((lead) => !lead.email.trim() && lead.web.trim())
+    .filter((lead) => !lead.email.trim() && lead.web.trim() && !lead.emailSearchAttemptedAt)
     .map((lead) => ({
       id: lead.id,
       Nombre: lead.personaContacto.trim() || lead.nombreNegocio.trim(),
@@ -103,7 +110,7 @@ async function exportLeadWebsitesForEmailSearch(leads: Lead[]) {
     }));
 
   if (rows.length === 0) {
-    alert("No hay leads sin email y con web para exportar.");
+    alert("No hay leads pendientes sin email y con web para exportar.");
     return;
   }
 
@@ -147,10 +154,12 @@ async function readLeadEmailResultsFile(file: File) {
 
       return {
         id: normalized.id || normalized.lead_id || normalized.leadid,
-        email: (normalized.email || normalized.correo || normalized.mail || "").toLowerCase()
+        email: (normalized.email || normalized.correo || normalized.mail || "").toLowerCase(),
+        status: normalized.estado || normalized.status || "",
+        pages: Number(normalized.paginas || normalized.pages || 0)
       };
     })
-    .filter((row) => row.id && row.email.includes("@"));
+    .filter((row) => row.id);
 }
 
 function emptyLead(assignedTo = ""): Lead {
@@ -403,7 +412,7 @@ export default function App() {
                 onSelect={setSelectedLeadId}
                 onSave={store.upsertLead}
                 onDelete={store.deleteLead}
-                onUpdateLeadEmails={store.updateLeadEmails}
+                onUpdateLeadEmailSearchResults={store.updateLeadEmailSearchResults}
                 onMarkEmailAutomationExported={store.markLeadEmailAutomationExported}
                 onSaveGroup={store.upsertLeadGroup}
                 onDeleteGroup={store.deleteLeadGroup}
@@ -890,7 +899,7 @@ function LeadsScreen({
   onSelect,
   onSave,
   onDelete,
-  onUpdateLeadEmails,
+  onUpdateLeadEmailSearchResults,
   onMarkEmailAutomationExported,
   onSaveGroup,
   onDeleteGroup
@@ -904,7 +913,7 @@ function LeadsScreen({
   onSelect: (id: string) => void;
   onSave: (lead: Lead) => void;
   onDelete: (id: string) => void;
-  onUpdateLeadEmails: (updates: Array<{ id: string; email: string }>) => void;
+  onUpdateLeadEmailSearchResults: (results: LeadEmailSearchResult[]) => void;
   onMarkEmailAutomationExported: (leadIds: string[]) => void;
   onSaveGroup: (group: LeadGroup) => void;
   onDeleteGroup: (id: string) => void;
@@ -989,12 +998,13 @@ function LeadsScreen({
     );
   });
 
-  const leadsMissingEmailWithWeb = leads.filter((lead) => !lead.email.trim() && lead.web.trim());
+  const leadsMissingEmailWithWeb = leads.filter((lead) => !lead.email.trim() && lead.web.trim() && !lead.emailSearchAttemptedAt);
+  const leadsEmailAttemptedWithoutEmail = leads.filter((lead) => !lead.email.trim() && lead.web.trim() && lead.emailSearchAttemptedAt);
   const leadsMissingEmailWithoutWeb = leads.filter((lead) => !lead.email.trim() && !lead.web.trim());
 
   const handleImportLeadEmailResults = async (file: File) => {
-    const updates = await readLeadEmailResultsFile(file);
-    onUpdateLeadEmails(updates);
+    const results = await readLeadEmailResultsFile(file);
+    onUpdateLeadEmailSearchResults(results);
     if (emailImportInputRef.current) {
       emailImportInputRef.current.value = "";
     }
@@ -1015,6 +1025,7 @@ function LeadsScreen({
     });
 
     let found = 0;
+    const allResults: LeadEmailSearchResult[] = [];
 
     try {
       for (let index = 0; index < targets.length; index += 25) {
@@ -1039,6 +1050,7 @@ function LeadsScreen({
           ok?: boolean;
           error?: string;
           updates?: Array<{ id: string; email: string }>;
+          results?: LeadEmailSearchResult[];
         };
 
         if (!data.ok) {
@@ -1046,10 +1058,9 @@ function LeadsScreen({
         }
 
         const updates = data.updates ?? [];
+        const results = data.results ?? [];
         found += updates.length;
-        if (updates.length > 0) {
-          onUpdateLeadEmails(updates);
-        }
+        allResults.push(...results);
 
         const checked = Math.min(index + chunk.length, targets.length);
         setLocalEmailSearchProgress({
@@ -1066,6 +1077,7 @@ function LeadsScreen({
         total: targets.length,
         status: `Busqueda local terminada. Encontrados: ${found}.`
       });
+      onUpdateLeadEmailSearchResults(allResults);
     } catch (error) {
       setLocalEmailSearchProgress((current) => ({
         ...current,
@@ -1292,10 +1304,14 @@ function LeadsScreen({
       {emailReviewOpen && (
         <Modal title="Revisar emails de leads" onClose={() => setEmailReviewOpen(false)}>
           <div className="space-y-5">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <div className="rounded-md border border-slate-200 p-3">
                 <p className="text-xs font-semibold uppercase text-slate-500">Revisables</p>
                 <p className="mt-1 text-2xl font-bold text-slate-950">{leadsMissingEmailWithWeb.length}</p>
+              </div>
+              <div className="rounded-md border border-slate-200 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Intentados</p>
+                <p className="mt-1 text-2xl font-bold text-slate-950">{leadsEmailAttemptedWithoutEmail.length}</p>
               </div>
               <div className="rounded-md border border-slate-200 p-3">
                 <p className="text-xs font-semibold uppercase text-slate-500">Sin web</p>
@@ -1308,7 +1324,7 @@ function LeadsScreen({
             </div>
 
             <p className="text-sm text-slate-500">
-              Flujo local sin coste cloud: exporta las webs pendientes, busca los emails en este ordenador e importa el Excel resultante. Los emails existentes no se sobrescriben.
+              Flujo local sin coste cloud: revisa solo webs pendientes. Los leads ya intentados sin email no vuelven a salir y los emails existentes no se sobrescriben.
             </p>
             {localEmailSearchProgress.total > 0 && (
               <div className="space-y-2 rounded-md border border-slate-200 p-3">
