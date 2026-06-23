@@ -16,6 +16,8 @@ const statusColors: Record<string, string> = {
   error_envio: "bg-red-100 text-red-800",
   respuesta_ambigua: "bg-orange-100 text-orange-800",
   sin_respuesta: "bg-slate-100 text-slate-700",
+  primer_envio: "bg-blue-100 text-blue-800",
+  segundo_envio: "bg-indigo-100 text-indigo-800",
   aprobada: "bg-emerald-100 text-emerald-800",
   borrador: "bg-slate-100 text-slate-700",
   enviada_a_revision: "bg-blue-100 text-blue-800",

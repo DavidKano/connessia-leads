@@ -21,7 +21,6 @@ import { StatCard } from "../ui/StatCard";
 import { Badge } from "../ui/Badge";
 import { Modal } from "../ui/Modal";
 import { getCurrentUsageMonthKey, getDaysUntilUsageReset, getGoogleMapsApiKey, getUsageData, saveGoogleMapsApiKey, incrementUsageInDb } from "../../services/configStore";
-import { useCrmStore } from "../../services/crmStore";
 import type { Lead } from "../../types/domain";
 
 interface FinderLead {
@@ -42,11 +41,11 @@ const inputClass =
 const masivoKeywords = [
   'Peluquerías', 'Clínica estética', 'Fisioterapia', 'Odontólogo', 
   'Veterinaria', 'Gimnasio', 'Taller mecánico', 'Mantenimiento del hogar',
-  'Abogados', 'Gestoría', 'Psicología'
+  'Abogados', 'Gestoría', 'Psicología', 'Podólogos', 'Masajistas', 'Quiromasajistas'
 ];
 
 function normalizeText(value: string) {
-  return value
+  return (value || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -55,7 +54,7 @@ function normalizeText(value: string) {
 }
 
 function normalizePhoneValue(value: string) {
-  return value.replace(/[^\d+]/g, "");
+  return (value || "").replace(/[^\d+]/g, "");
 }
 
 function sameFinderLead(a: FinderLead, b: FinderLead) {
@@ -67,20 +66,26 @@ function sameFinderLead(a: FinderLead, b: FinderLead) {
 }
 
 function isKnownLead(finderLead: FinderLead, existingLeads: Lead[]) {
-  const phone = normalizePhoneValue(finderLead.telefono);
-  const web = finderLead.web.toLowerCase();
-  const name = normalizeText(finderLead.nombre);
-  const address = normalizeText(finderLead.direccion);
+  const phone = normalizePhoneValue(finderLead.telefono || "");
+  const web = (finderLead.web || "").toLowerCase();
+  const name = normalizeText(finderLead.nombre || "");
+  const address = normalizeText(finderLead.direccion || "");
 
-  return existingLeads.some((lead) => {
-    const existingPhone = normalizePhoneValue(lead.telefono);
+  return (existingLeads || []).some((lead) => {
+    const existingPhone = normalizePhoneValue(lead.telefono || "");
     if (phone && existingPhone && phone === existingPhone) return true;
-    if (web && lead.web.toLowerCase() === web) return true;
-    return normalizeText(lead.nombreNegocio) === name && normalizeText(lead.direccion) === address;
+    if (web && lead.web && lead.web.toLowerCase() === web) return true;
+    return normalizeText(lead.nombreNegocio || "") === name && normalizeText(lead.direccion || "") === address;
   });
 }
 
-export function LeadFinderScreen() {
+interface LeadFinderScreenProps {
+  existingLeads: Lead[];
+  importLeads: (leads: Lead[]) => void;
+  setToast: (msg: string) => void;
+}
+
+export function LeadFinderScreen({ existingLeads, importLeads, setToast }: LeadFinderScreenProps) {
   const [apiKey, setApiKey] = useState("");
   const [apiLimit, setApiLimit] = useState(parseInt(localStorage.getItem('gmaps_api_limit') || '3000', 10));
   const [usageCount, setUsageCount] = useState(0);
@@ -99,8 +104,6 @@ export function LeadFinderScreen() {
   const [showConfig, setShowConfig] = useState(false);
   const [configDraft, setConfigDraft] = useState({ key: "", limit: apiLimit });
   const [phoneSortDir, setPhoneSortDir] = useState<"asc" | "desc" | null>(null);
-
-  const store = useCrmStore();
 
   useEffect(() => {
     async function loadData() {
@@ -133,7 +136,7 @@ export function LeadFinderScreen() {
 
   const loadGoogleMapsScript = (key: string) => {
     const existingScript = document.getElementById('google-maps-script');
-    if (existingScript) existingScript.remove();
+    if (existingScript) return; // Evitar cargar el script múltiples veces en Strict Mode
 
     const script = document.createElement("script");
     script.id = 'google-maps-script';
@@ -146,9 +149,11 @@ export function LeadFinderScreen() {
   const handleSaveConfig = async () => {
     try {
       // Only save if the key was actually changed (not just showing asterisks)
-      if (configDraft.key && configDraft.key !== "********************") {
-        await saveGoogleMapsApiKey(configDraft.key);
-        setApiKey(configDraft.key);
+      const isKeyChanged = configDraft.key && configDraft.key !== "********************";
+      if (isKeyChanged) {
+        const trimmedKey = configDraft.key.trim();
+        await saveGoogleMapsApiKey(trimmedKey);
+        setApiKey(trimmedKey);
         setHasRemoteKey(true);
       }
       
@@ -160,6 +165,11 @@ export function LeadFinderScreen() {
       }
       
       setShowConfig(false);
+      
+      if (isKeyChanged) {
+        // Recargar la página para inicializar Google Maps con la nueva API Key
+        window.location.reload();
+      }
     } catch (err) {
       alert("Error al guardar la configuración: " + (err instanceof Error ? err.message : "Desconocido"));
     }
@@ -227,6 +237,7 @@ export function LeadFinderScreen() {
   };
 
   const geocodePostalCode = async (cp: string): Promise<any> => {
+    console.log(`[Google Maps Debug] Iniciando geocodificación para el código postal: "${cp}"`);
     const cleanPostalCode = cp.trim();
 
     if (!/^\d{5}$/.test(cleanPostalCode)) {
@@ -235,47 +246,36 @@ export function LeadFinderScreen() {
 
     const geocoder = new (window as any).google.maps.Geocoder();
     const requests = [
-      {
-        componentRestrictions: {
-          country: "ES",
-          postalCode: cleanPostalCode,
-        },
-        region: "es",
-      },
-      {
-        address: `${cleanPostalCode}, España`,
-        region: "es",
-      },
-      {
-        address: `código postal ${cleanPostalCode}, España`,
-        region: "es",
-      },
+      { componentRestrictions: { country: "ES", postalCode: cleanPostalCode }, region: "es" },
+      { address: `${cleanPostalCode}, España`, region: "es" },
+      { address: `código postal ${cleanPostalCode}, España`, region: "es" },
     ];
 
     let lastStatus = "";
 
     for (const request of requests) {
       const result = await new Promise<any | null>((resolve, reject) => {
-        geocoder.geocode(request, (results: any[] | null, status: string) => {
-          lastStatus = status;
+        const timeoutId = setTimeout(() => {
+          console.error(`[Google Maps Debug] Timeout alcanzado al ubicar CP: "${cleanPostalCode}"`);
+          reject(new Error("Tiempo de espera agotado al ubicar el código postal."));
+        }, 10000);
 
-          if (status === "OK" && results?.[0]) {
-            resolve(results[0]);
-            return;
-          }
-
-          if (status !== "ZERO_RESULTS") {
-            reject(new Error(formatGeocodeError(status)));
-            return;
-          }
-
-          resolve(null);
-        });
+        try {
+          geocoder.geocode(request, (results: any[] | null, status: string) => {
+            clearTimeout(timeoutId);
+            lastStatus = status;
+            console.log(`[Google Maps Debug] Geocoder respuesta recibida. Status: "${status}"`);
+            if (status === "OK" && results?.[0]) resolve(results[0]);
+            else if (status !== "ZERO_RESULTS") reject(new Error(formatGeocodeError(status)));
+            else resolve(null);
+          });
+        } catch (err) {
+          clearTimeout(timeoutId);
+          reject(err);
+        }
       });
-
       if (result) return result.geometry.location;
     }
-
     throw new Error(formatGeocodeError(lastStatus || "ZERO_RESULTS"));
   };
 
@@ -285,115 +285,82 @@ export function LeadFinderScreen() {
         placeId: placeId,
         fields: ['address_components', 'formatted_phone_number', 'website', 'name', 'vicinity']
       };
-      
-      setTimeout(() => {
-        service.getDetails(request, (place: any, status: any) => {
-          incrementUsage(1);
-          if (status === (window as any).google.maps.places.PlacesServiceStatus.OK && place) {
-            resolve(place);
-          } else {
-            reject(new Error('Detail err'));
-          }
-        });
-      }, 250);
+      const timeoutId = setTimeout(() => reject(new Error("Timeout obteniendo detalles.")), 8000);
+      service.getDetails(request, (place: any, status: any) => {
+        clearTimeout(timeoutId);
+        incrementUsage(1);
+        if (status === (window as any).google.maps.places.PlacesServiceStatus.OK && place) resolve(place);
+        else reject(new Error(`Detalle falló: ${status}`));
+      });
     });
   };
 
   const performNearbySearch = (location: any, keyword: string) => {
     return new Promise<void>((resolve, reject) => {
-      const mapDiv = document.createElement('div');
-      const map = new (window as any).google.maps.Map(mapDiv, { center: location, zoom: 15 });
-      const service = new (window as any).google.maps.places.PlacesService(map);
-      
-      const request = {
-        location: location,
-        radius: '3000',
-        keyword: keyword,
-      };
-      
-      const fetchPage = (req: any) => {
-        service.nearbySearch(req, async (results: any, status: any, pagination: any) => {
-          incrementUsage(1);
-          if (status === (window as any).google.maps.places.PlacesServiceStatus.OK && results) {
-            setLoadingMsg(`Extrayendo detalles de ${results.length} negocios para "${keyword}"...`);
-            
-            for (let place of results) {
-              try {
-                const details = await getPlaceDetails(service, place.place_id);
-                addLead(details, keyword);
-              } catch (e) {
-                addLead(place, keyword);
+      try {
+        const mapDiv = document.createElement('div');
+        const map = new (window as any).google.maps.Map(mapDiv, { center: location, zoom: 15 });
+        const service = new (window as any).google.maps.places.PlacesService(map);
+        let timeoutId: any = null;
+        const clearSafety = () => { if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; } };
+        const setSafety = () => { clearSafety(); timeoutId = setTimeout(() => reject(new Error("Timeout.")), 15000); };
+        
+        const fetchPage = (req: any) => {
+          setSafety();
+          service.nearbySearch(req, async (results: any, status: any, pagination: any) => {
+            clearSafety();
+            incrementUsage(1);
+            if (status === (window as any).google.maps.places.PlacesServiceStatus.OK && results) {
+              for (let place of results) {
+                try { const d = await getPlaceDetails(service, place.place_id); addLead(d, keyword); } 
+                catch (e) { addLead(place, keyword); }
               }
-            }
-            
-            if (pagination && pagination.hasNextPage && currentUsageCount() < apiLimit) {
-              setLoadingMsg(`Paginando resultados para "${keyword}"...`);
-              setTimeout(() => pagination.nextPage(), 2000);
-            } else {
-              resolve();
-            }
-          } else if (status === (window as any).google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
-            resolve(); 
-          } else {
-            reject(new Error(formatPlacesError(status)));
-          }
-        });
-      };
-      
-      fetchPage(request);
+              if (pagination && pagination.hasNextPage && currentUsageCount() < apiLimit) {
+                setTimeout(() => { setSafety(); pagination.nextPage(); }, 2000);
+              } else resolve();
+            } else if (status === (window as any).google.maps.places.PlacesServiceStatus.ZERO_RESULTS) resolve();
+            else reject(new Error(formatPlacesError(status)));
+          });
+        };
+        fetchPage({ location, radius: '3000', keyword });
+      } catch (err) { reject(err); }
     });
   };
 
   const performTextSearch = (postalCodeQuery: string, keyword: string) => {
     return new Promise<void>((resolve, reject) => {
-      const mapDiv = document.createElement('div');
-      const spainCenter = new (window as any).google.maps.LatLng(40.4168, -3.7038);
-      const map = new (window as any).google.maps.Map(mapDiv, { center: spainCenter, zoom: 6 });
-      const service = new (window as any).google.maps.places.PlacesService(map);
-      
-      const request = {
-        query: `${keyword} ${postalCodeQuery} España`,
-        region: 'es',
-      };
-      
-      const fetchPage = (req: any) => {
-        service.textSearch(req, async (results: any, status: any, pagination: any) => {
-          incrementUsage(1);
-          if (status === (window as any).google.maps.places.PlacesServiceStatus.OK && results) {
-            setLoadingMsg(`Extrayendo detalles de ${results.length} negocios para "${keyword}"...`);
-            
-            for (let place of results) {
-              try {
-                const details = await getPlaceDetails(service, place.place_id);
-                addLead(details, keyword);
-              } catch (e) {
-                addLead(place, keyword);
+      try {
+        const mapDiv = document.createElement('div');
+        const map = new (window as any).google.maps.Map(mapDiv, { center: new (window as any).google.maps.LatLng(40.4168, -3.7038), zoom: 6 });
+        const service = new (window as any).google.maps.places.PlacesService(map);
+        let timeoutId: any = null;
+        const clearSafety = () => { if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; } };
+        const setSafety = () => { clearSafety(); timeoutId = setTimeout(() => reject(new Error("Timeout.")), 15000); };
+
+        const fetchPage = (req: any) => {
+          setSafety();
+          service.textSearch(req, async (results: any, status: any, pagination: any) => {
+            clearSafety();
+            incrementUsage(1);
+            if (status === (window as any).google.maps.places.PlacesServiceStatus.OK && results) {
+              for (let place of results) {
+                try { const d = await getPlaceDetails(service, place.place_id); addLead(d, keyword); }
+                catch (e) { addLead(place, keyword); }
               }
-            }
-            
-            if (pagination && pagination.hasNextPage && currentUsageCount() < apiLimit) {
-              setLoadingMsg(`Paginando resultados para "${keyword}"...`);
-              setTimeout(() => pagination.nextPage(), 2000);
-            } else {
-              resolve();
-            }
-          } else if (status === (window as any).google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
-            resolve(); 
-          } else {
-            reject(new Error(formatPlacesError(status)));
-          }
-        });
-      };
-      
-      fetchPage(request);
+              if (pagination && pagination.hasNextPage && currentUsageCount() < apiLimit) {
+                setTimeout(() => { setSafety(); pagination.nextPage(); }, 2000);
+              } else resolve();
+            } else if (status === (window as any).google.maps.places.PlacesServiceStatus.ZERO_RESULTS) resolve();
+            else reject(new Error(formatPlacesError(status)));
+          });
+        };
+        fetchPage({ query: `${keyword} ${postalCodeQuery} España`, region: 'es' });
+      } catch (err) { reject(err); }
     });
   };
 
   const addLead = (place: any, tipo: string) => {
-    let cp = '';
-    let localidad = '';
-    let provincia = '';
-    
+    let cp = '', localidad = '', provincia = '';
     if (place.address_components) {
       place.address_components.forEach((comp: any) => {
         if (comp.types.includes('postal_code')) cp = comp.long_name;
@@ -414,7 +381,7 @@ export function LeadFinderScreen() {
       tipo: tipo || ''
     };
 
-    if (isKnownLead(newLead, store.state.leads)) return;
+    if (isKnownLead(newLead, existingLeads)) return;
     
     setLeads(prev => prev.some((item) => sameFinderLead(item, newLead)) ? prev : [...prev, newLead]);
   };
@@ -435,7 +402,7 @@ export function LeadFinderScreen() {
     const leadsToImport: Lead[] = [];
     
     selectedLeads.forEach(fLead => {
-      if (isKnownLead(fLead, store.state.leads)) return;
+      if (isKnownLead(fLead, existingLeads)) return;
       const lead: Lead = {
         id: crypto.randomUUID(),
         nombreNegocio: fLead.nombre,
@@ -461,10 +428,10 @@ export function LeadFinderScreen() {
     });
 
     if (leadsToImport.length > 0) {
-      store.importLeads(leadsToImport);
+      importLeads(leadsToImport);
     }
 
-    store.setToast(`${leadsToImport.length} leads traspasados correctamente. ${selectedIds.length - leadsToImport.length} ya existian y se omitieron.`);
+    setToast(`${leadsToImport.length} leads traspasados correctamente. ${selectedIds.length - leadsToImport.length} ya existian y se omitieron.`);
     setLeads(prev => prev.filter(l => !selectedIds.includes(l.id)));
     setSelectedIds([]);
   };

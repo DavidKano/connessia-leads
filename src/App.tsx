@@ -337,6 +337,8 @@ export default function App() {
                 users={state.users}
                 currentUser={state.currentUser}
                 groups={state.leadGroups}
+                state={state}
+                updateState={store.updateState}
                 onSelect={setSelectedLeadId}
                 onSave={store.upsertLead}
                 onDelete={store.deleteLead}
@@ -427,7 +429,13 @@ export default function App() {
             {page === "exclusion" && <ExclusionScreen state={state} onAdd={store.addDoNotContact} />}
             {page === "auditoria" && <AuditScreen state={state} />}
             {page === "simulador" && <SimulatorScreen state={state} updateState={store.updateState} />}
-            {page === "finder" && <LeadFinderScreen />}
+            {page === "finder" && (
+              <LeadFinderScreen
+                existingLeads={state.leads}
+                importLeads={store.importLeads}
+                setToast={store.setToast}
+              />
+            )}
             {page === "usuarios" && state.currentUser.role === "admin" && (
               <UsersScreen state={state} onSaveUser={store.upsertUser} />
             )}
@@ -814,6 +822,8 @@ function LeadsScreen({
   users,
   currentUser,
   groups,
+  state,
+  updateState,
   onSelect,
   onSave,
   onDelete,
@@ -824,6 +834,8 @@ function LeadsScreen({
   users: ReturnType<typeof useCrmStore>["state"]["users"];
   currentUser: AppUser;
   groups: LeadGroup[];
+  state: ReturnType<typeof useCrmStore>["state"];
+  updateState: ReturnType<typeof useCrmStore>["updateState"];
   onSelect: (id: string) => void;
   onSave: (lead: Lead) => void;
   onDelete: (id: string) => void;
@@ -841,6 +853,7 @@ function LeadsScreen({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [editing, setEditing] = useState<Lead | null>(null);
   const [editingGroup, setEditingGroup] = useState<LeadGroup | null>(null);
+  const [showAutomationModal, setShowAutomationModal] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("leads_filter_query", query);
@@ -953,6 +966,9 @@ function LeadsScreen({
         subtitle="CRM comercial con grupos, consentimiento, estados, notas e historial."
         action={
           <div className="flex gap-2">
+            <Button variant="secondary" icon={<MessageCircle size={18} />} onClick={() => setShowAutomationModal(true)}>
+              Automatización Whatsapp
+            </Button>
             <Button variant="secondary" icon={<Download size={18} />} onClick={() => exportLeadEmailsForAutomation(leads)}>
               Exportar emails
             </Button>
@@ -1113,6 +1129,385 @@ function LeadsScreen({
           }}
         />
       )}
+      {showAutomationModal && (
+        <WhatsappAutomationModal
+          leads={leads}
+          groups={groups}
+          state={state}
+          updateState={updateState}
+          onClose={() => setShowAutomationModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function WhatsappAutomationModal({
+  leads,
+  groups,
+  state,
+  updateState,
+  onClose
+}: {
+  leads: Lead[];
+  groups: LeadGroup[];
+  state: ReturnType<typeof useCrmStore>["state"];
+  updateState: ReturnType<typeof useCrmStore>["updateState"];
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [action, setAction] = useState("");
+
+  const filtered = leads.filter(lead => {
+    const nameMatch = lead.nombreNegocio.toLowerCase().includes(search.toLowerCase());
+    const phoneMatch = lead.telefono.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = nameMatch || phoneMatch;
+    
+    const matchStatus = !statusFilter || getLeadStateValue(lead) === statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    const phoneA = a.telefono || "";
+    const phoneB = b.telefono || "";
+    return sortDir === "asc" ? phoneA.localeCompare(phoneB) : phoneB.localeCompare(phoneA);
+  });
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const visibleIds = sorted.map(l => l.id);
+      setSelectedIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+    } else {
+      const visibleIdsSet = new Set(sorted.map(l => l.id));
+      setSelectedIds(prev => prev.filter(id => !visibleIdsSet.has(id)));
+    }
+  };
+
+  const handleToggleSelect = (leadId: string) => {
+    setSelectedIds(prev =>
+      prev.includes(leadId) ? prev.filter(id => id !== leadId) : [...prev, leadId]
+    );
+  };
+
+  const isAllSelected = sorted.length > 0 && sorted.every(l => selectedIds.includes(l.id));
+
+  const handleExecute = () => {
+    if (!action) return;
+    if (selectedIds.length === 0) {
+      alert("Por favor, selecciona al menos un lead.");
+      return;
+    }
+
+    const actionLabels: Record<string, string> = {
+      export_csv: "Exportar CSV",
+      mark_first: "Marcar como primer envío de WhatsApp",
+      mark_second: "Marcar como segundo envío de WhatsApp",
+      move_doubtful: "Pasar a Dudoso/Terminado",
+      move_excluded: "Pasar a Excluido"
+    };
+
+    if (!window.confirm(`¿Estás seguro de que deseas ejecutar la acción "${actionLabels[action]}" para los ${selectedIds.length} leads seleccionados?`)) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const selectedLeadsSet = new Set(selectedIds);
+
+    if (action === "export_csv") {
+      const selectedLeads = leads.filter(l => selectedLeadsSet.has(l.id));
+      const headers = ["Nombre del negocio", "Sector", "Teléfono", "Estado"];
+      const csvRows = selectedLeads.map(l => [
+        l.nombreNegocio,
+        l.sector,
+        l.telefono,
+        getLeadStateLabel(l)
+      ]);
+      const csvContent = [headers, ...csvRows]
+        .map(e => e.map(val => `"${String(val || "").replace(/"/g, '""')}"`).join(";"))
+        .join("\r\n");
+
+      const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `automatizacion_whatsapp_${new Date().toISOString().slice(0, 10)}.csv`);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    let nextLeads = [...state.leads];
+    let nextMessages = [...state.messages];
+    let nextQueue = [...state.queue];
+    let nextDnc = [...state.doNotContact];
+
+    leads.forEach(lead => {
+      if (!selectedLeadsSet.has(lead.id)) return;
+
+      if (action === "mark_first") {
+        nextLeads = nextLeads.map(l =>
+          l.id === lead.id
+            ? {
+                ...l,
+                estado: "primer_envio",
+                ultimoContacto: now,
+                proximaAccion: "Primer envío WhatsApp registrado",
+                updatedAt: now
+              }
+            : l
+        );
+        nextMessages.push({
+          id: `msg-${crypto.randomUUID()}`,
+          leadId: lead.id,
+          direction: "outbound",
+          channel: "whatsapp",
+          body: "Primer envío de WhatsApp registrado vía automatización.",
+          status: "sent",
+          createdAt: now
+        });
+      } else if (action === "mark_second") {
+        nextLeads = nextLeads.map(l =>
+          l.id === lead.id
+            ? {
+                ...l,
+                estado: "segundo_envio",
+                ultimoContacto: now,
+                proximaAccion: "Segundo envío WhatsApp registrado",
+                updatedAt: now
+              }
+            : l
+        );
+        nextMessages.push({
+          id: `msg-${crypto.randomUUID()}`,
+          leadId: lead.id,
+          direction: "outbound",
+          channel: "whatsapp",
+          body: "Segundo envío de WhatsApp registrado vía automatización.",
+          status: "sent",
+          createdAt: now
+        });
+      } else if (action === "move_doubtful") {
+        nextLeads = nextLeads.map(l =>
+          l.id === lead.id
+            ? {
+                ...l,
+                estado: "dudoso",
+                contactadoResultado: "dudoso_comercial",
+                contactadoAt: now,
+                contactadoBy: state.currentUser.uid,
+                contactadoCierre: "terminado",
+                contactadoCerradoAt: now,
+                contactadoCerradoBy: state.currentUser.uid,
+                contactadoCierreNotas: "Pasado a dudoso/terminado por automatización",
+                campaignChatClosedAt: now,
+                proximaAccion: "Comercial debe contactar / Gestion terminado",
+                updatedAt: now
+              }
+            : l
+        );
+        nextQueue = nextQueue.filter(
+          q => !(q.leadId === lead.id && (q.status === "pending" || q.status === "processing"))
+        );
+      } else if (action === "move_excluded") {
+        nextLeads = nextLeads.map(l =>
+          l.id === lead.id
+            ? {
+                ...l,
+                estado: "baja",
+                fechaBaja: now,
+                motivoBaja: "Baja por exclusión automática",
+                contactadoCierre: "baja",
+                contactadoCerradoAt: now,
+                contactadoCerradoBy: state.currentUser.uid,
+                contactadoCierreNotas: "Pasado a excluido por automatización",
+                proximaAccion: "No contactar",
+                updatedAt: now
+              }
+            : l
+        );
+        nextQueue = nextQueue.filter(
+          q => !(q.leadId === lead.id && (q.status === "pending" || q.status === "processing"))
+        );
+        const phone = normalizePhone(lead.telefono);
+        const email = lead.email?.trim();
+        const alreadyExists = nextDnc.some(
+          d => normalizePhone(d.phone) === phone || Boolean(email && d.email?.trim().toLowerCase() === email.toLowerCase())
+        );
+        if (!alreadyExists) {
+          nextDnc.push({
+            id: `dnc-${crypto.randomUUID()}`,
+            phone,
+            email: email || undefined,
+            reason: "Exclusión por automatización Whatsapp",
+            source: "automatizacion_whatsapp",
+            createdAt: now
+          });
+        }
+      }
+    });
+
+    updateState(
+      {
+        ...state,
+        leads: nextLeads,
+        messages: nextMessages,
+        queue: nextQueue,
+        doNotContact: nextDnc
+      },
+      "Acción en lote ejecutada con éxito."
+    );
+
+    setSelectedIds([]);
+    onClose();
+  };
+
+  const getDynamicStatuses = () => {
+    const statuses = leads.map(l => getLeadStateValue(l));
+    return Array.from(new Set(statuses));
+  };
+
+  const inputClass = "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-connessia-500 focus:ring-1 focus:ring-connessia-500 outline-none transition w-full md:w-auto min-w-[140px]";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-950 flex items-center gap-2">
+            <MessageCircle className="text-connessia-600" size={22} />
+            Automatización de WhatsApp
+          </h2>
+          <Button variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+        
+        <div className="p-5 flex-1 overflow-hidden flex flex-col gap-4">
+          {/* Filters Bar */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+              <input
+                type="text"
+                className={`${inputClass} pl-9 w-full`}
+                placeholder="Buscar por negocio o teléfono..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            
+            <select
+              className={inputClass}
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+            >
+              <option value="">Todos los estados</option>
+              {getDynamicStatuses().map(st => (
+                <option key={st} value={st}>
+                  {String(st).replaceAll("_", " ")}
+                </option>
+              ))}
+            </select>
+            
+            <div className="text-xs text-slate-500 font-medium">
+              Mostrando {sorted.length} de {leads.length} leads
+            </div>
+          </div>
+
+          {/* Table Container */}
+          <div className="flex-1 border border-slate-200 rounded-lg overflow-auto max-h-[450px]">
+            <table className="w-full text-left text-xs text-slate-800">
+              <thead className="bg-slate-50 uppercase text-slate-500 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="px-4 py-3 w-12 text-center">
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={e => handleSelectAll(e.target.checked)}
+                      className="rounded border-slate-300 text-connessia-600 focus:ring-connessia-500"
+                    />
+                  </th>
+                  <th className="px-4 py-3 font-semibold">Nombre del Negocio</th>
+                  <th className="px-4 py-3 font-semibold">Sector</th>
+                  <th className="px-4 py-3 font-semibold cursor-pointer hover:bg-slate-100 hover:text-slate-900 select-none" onClick={() => setSortDir(prev => prev === "asc" ? "desc" : "asc")}>
+                    <div className="flex items-center gap-1">
+                      Teléfono
+                      {sortDir === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+                    </div>
+                  </th>
+                  <th className="px-4 py-3 font-semibold">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {sorted.map(lead => {
+                  const isSelected = selectedIds.includes(lead.id);
+                  return (
+                    <tr
+                      key={lead.id}
+                      className={`hover:bg-slate-50 transition ${isSelected ? "bg-connessia-50/30" : ""}`}
+                    >
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelect(lead.id)}
+                          className="rounded border-slate-300 text-connessia-600 focus:ring-connessia-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{lead.nombreNegocio}</td>
+                      <td className="px-4 py-3 text-slate-600">{lead.sector || "-"}</td>
+                      <td className="px-4 py-3 text-slate-700 font-mono">{lead.telefono}</td>
+                      <td className="px-4 py-3">
+                        <Badge value={getLeadStateValue(lead)} />
+                      </td>
+                    </tr>
+                  );
+                })}
+                {sorted.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                      No se encontraron leads que coincidan con la búsqueda.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="border-t border-slate-200 bg-slate-50 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="text-sm font-semibold text-slate-700">
+            {selectedIds.length} leads seleccionados
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <select
+              className={`${inputClass} border-slate-300 focus:border-connessia-500`}
+              value={action}
+              onChange={e => setAction(e.target.value)}
+            >
+              <option value="">-- Selecciona una acción --</option>
+              <option value="export_csv">Exportar CSV</option>
+              <option value="mark_first">Marcar como primer envío</option>
+              <option value="mark_second">Marcar como segundo envío</option>
+              <option value="move_doubtful">Pasar a Dudoso/Terminado</option>
+              <option value="move_excluded">Pasar a Excluido</option>
+            </select>
+            
+            <Button
+              onClick={handleExecute}
+              disabled={!action || selectedIds.length === 0}
+            >
+              Ejecutar
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -4523,6 +4918,8 @@ function getLeadStateLabel(lead: Lead) {
   if (lead.estado === "sin_respuesta") return "Sin respuesta";
   if (lead.estado === "interesado") return "Interesado";
   if (lead.estado === "no_interesado") return "No interesa";
+  if (lead.estado === "primer_envio") return "Primer envío WhatsApp";
+  if (lead.estado === "segundo_envio") return "Segundo envío WhatsApp";
   return String(lead.estado).replaceAll("_", " ");
 }
 
@@ -4534,6 +4931,8 @@ function getLeadStateValue(lead: Lead) {
   if (lead.estado === "sin_respuesta") return "sin_respuesta";
   if (lead.estado === "interesado") return "interesado";
   if (lead.estado === "no_interesado") return "no_interesa";
+  if (lead.estado === "primer_envio") return "primer_envio";
+  if (lead.estado === "segundo_envio") return "segundo_envio";
   return lead.estado;
 }
 
@@ -5318,6 +5717,8 @@ function InProgressLeadsScreen({
     if (val === "dudoso") return "bg-amber-50 text-amber-800 border-amber-200";
     if (val === "no_interesa") return "bg-red-50 text-red-800 border-red-200";
     if (val === "campaña_enviada") return "bg-blue-50 text-blue-800 border-blue-200";
+    if (val === "primer_envio") return "bg-blue-50 text-blue-800 border-blue-200";
+    if (val === "segundo_envio") return "bg-indigo-50 text-indigo-800 border-indigo-200";
     return "bg-slate-50 text-slate-700 border-slate-200";
   };
 

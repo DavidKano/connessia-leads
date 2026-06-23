@@ -14,7 +14,9 @@ export type LeadStatus =
   | "bloqueado"
   | "error_envio"
   | "respuesta_ambigua"
-  | "sin_respuesta";
+  | "sin_respuesta"
+  | "primer_envio"
+  | "segundo_envio";
 
 export type ConsentOrigin =
   | "formulario web"
