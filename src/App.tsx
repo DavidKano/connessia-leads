@@ -28,7 +28,7 @@ import {
   Check,
   Copy
 } from "lucide-react";
-import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
+import { useState, useRef, useEffect, useMemo, type ReactNode, type MouseEvent as ReactMouseEvent } from "react";
 import { Sidebar, navItems, type PageId } from "./components/layout/Sidebar";
 import { Topbar } from "./components/layout/Topbar";
 import { LeadFinderScreen } from "./components/screens/LeadFinderScreen";
@@ -64,6 +64,53 @@ type LeadEmailSearchResult = {
   email?: string;
   status?: string;
   pages?: number;
+};
+
+type LeadColumnKey =
+  | "action"
+  | "negocio"
+  | "sector"
+  | "zona"
+  | "ciudad"
+  | "cp"
+  | "grupos"
+  | "telefono"
+  | "email"
+  | "estado"
+  | "consentimiento"
+  | "comercial"
+  | "contacto";
+
+const leadColumnOrder: LeadColumnKey[] = [
+  "action",
+  "negocio",
+  "sector",
+  "zona",
+  "ciudad",
+  "cp",
+  "grupos",
+  "telefono",
+  "email",
+  "estado",
+  "consentimiento",
+  "comercial",
+  "contacto"
+];
+
+const defaultLeadColumnWidths: Record<LeadColumnKey, number> = {
+  action: 78,
+  negocio: 320,
+  sector: 140,
+  zona: 110,
+  ciudad: 110,
+  cp: 86,
+  grupos: 170,
+  telefono: 130,
+  email: 270,
+  estado: 120,
+  consentimiento: 115,
+  comercial: 160,
+  contacto: 150
 };
 
 async function exportLeadEmailsForAutomation(leads: Lead[], onMarkExported: (leadIds: string[]) => void) {
@@ -938,7 +985,20 @@ function LeadsScreen({
     total: 0,
     status: ""
   });
+  const [leadColumnWidths, setLeadColumnWidths] = useState<Record<LeadColumnKey, number>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("lead_table_column_widths") ?? "{}") as Partial<Record<LeadColumnKey, number>>;
+      return { ...defaultLeadColumnWidths, ...saved };
+    } catch {
+      return defaultLeadColumnWidths;
+    }
+  });
   const emailImportInputRef = useRef<HTMLInputElement | null>(null);
+  const resizingLeadColumnRef = useRef<{
+    key: LeadColumnKey;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
 
   useEffect(() => {
     localStorage.setItem("leads_filter_query", query);
@@ -963,6 +1023,40 @@ function LeadsScreen({
   useEffect(() => {
     localStorage.setItem("leads_filter_consent", consent);
   }, [consent]);
+
+  useEffect(() => {
+    localStorage.setItem("lead_table_column_widths", JSON.stringify(leadColumnWidths));
+  }, [leadColumnWidths]);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const resize = resizingLeadColumnRef.current;
+      if (!resize) return;
+
+      const nextWidth = Math.max(64, resize.startWidth + event.clientX - resize.startX);
+      setLeadColumnWidths((current) => ({
+        ...current,
+        [resize.key]: nextWidth
+      }));
+    };
+
+    const handleMouseUp = () => {
+      if (!resizingLeadColumnRef.current) return;
+      resizingLeadColumnRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, []);
 
   useEffect(() => {
     const handleHardReload = (event: KeyboardEvent) => {
@@ -1132,7 +1226,44 @@ function LeadsScreen({
     return 0;
   });
 
+  const leadTableWidth = leadColumnOrder.reduce((total, key) => total + leadColumnWidths[key], 0);
 
+  const startLeadColumnResize = (key: LeadColumnKey, event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    resizingLeadColumnRef.current = {
+      key,
+      startX: event.clientX,
+      startWidth: leadColumnWidths[key]
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  const renderLeadHeader = (key: LeadColumnKey, label: ReactNode, sortField?: string, className = "") => {
+    const sortedHere = sortField && sortKey === sortField;
+    const sortMark = sortedHere ? (sortDir === "asc" ? "↑" : "↓") : "";
+
+    return (
+      <th
+        key={key}
+        className={`relative border-r border-slate-200 px-3 py-3 font-bold last:border-r-0 ${sortField ? "cursor-pointer hover:bg-slate-100" : ""} ${className}`}
+        style={{ width: leadColumnWidths[key] }}
+        onClick={sortField ? () => handleSort(sortField) : undefined}
+      >
+        <span className="block truncate">
+          {label} {sortMark}
+        </span>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          className="absolute right-0 top-0 h-full w-2 cursor-col-resize select-none touch-none hover:bg-connessia-200"
+          onMouseDown={(event) => startLeadColumnResize(key, event)}
+          title="Arrastrar para ajustar columna"
+        />
+      </th>
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -1230,29 +1361,37 @@ function LeadsScreen({
         )}
       </Card>
       <Card className="overflow-hidden">
-        <div className="overflow-x-auto table-scroll">
-          <table className="w-full min-w-[1250px] text-left text-[12px]">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+        <div className="max-h-[68vh] overflow-auto table-scroll">
+          <table
+            className="table-fixed text-left text-[12px]"
+            style={{ width: leadTableWidth, minWidth: "100%" }}
+          >
+            <colgroup>
+              {leadColumnOrder.map((key) => (
+                <col key={key} style={{ width: leadColumnWidths[key] }} />
+              ))}
+            </colgroup>
+            <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500 shadow-sm">
               <tr>
-                <th className="px-3 py-3 w-20">Acción</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('negocio')}>Negocio {sortKey === 'negocio' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('sector')}>Sector {sortKey === 'sector' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('zona')}>Zona {sortKey === 'zona' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('ciudad')}>Ciudad {sortKey === 'ciudad' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('cp')}>CP {sortKey === 'cp' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 min-w-[140px] cursor-pointer hover:bg-slate-100" onClick={() => handleSort('grupos')}>Grupos {sortKey === 'grupos' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('telefono')}>Teléfono {sortKey === 'telefono' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('email')}>Email {sortKey === 'email' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('estado')}>Estado {sortKey === 'estado' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 leading-tight text-center cursor-pointer hover:bg-slate-100" onClick={() => handleSort('consentimiento')}>Consen.<br/>Comerc. {sortKey === 'consentimiento' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('comercial')}>Comercial {sortKey === 'comercial' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
-                <th className="px-3 py-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('contacto')}>Últ. contacto {sortKey === 'contacto' ? (sortDir === 'asc' ? '↑' : '↓') : ''}</th>
+                {renderLeadHeader("action", "Accion")}
+                {renderLeadHeader("negocio", "Negocio", "negocio")}
+                {renderLeadHeader("sector", "Sector", "sector")}
+                {renderLeadHeader("zona", "Zona", "zona")}
+                {renderLeadHeader("ciudad", "Ciudad", "ciudad")}
+                {renderLeadHeader("cp", "CP", "cp")}
+                {renderLeadHeader("grupos", "Grupos", "grupos")}
+                {renderLeadHeader("telefono", "Telefono", "telefono")}
+                {renderLeadHeader("email", "Email", "email")}
+                {renderLeadHeader("estado", "Estado", "estado")}
+                {renderLeadHeader("consentimiento", <>Consen.<br />Comerc.</>, "consentimiento", "text-center")}
+                {renderLeadHeader("comercial", "Comercial", "comercial")}
+                {renderLeadHeader("contacto", "Ult. contacto", "contacto")}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {sorted.map((lead) => (
                 <tr key={lead.id} className="hover:bg-slate-50">
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 align-top">
                     <div className="flex gap-3">
                       <button className="text-slate-400 hover:text-connessia-600 transition-colors" onClick={() => setEditing(lead)} title="Editar lead">
                         <Edit3 size={18} />
@@ -1262,27 +1401,27 @@ function LeadsScreen({
                       </button>
                     </div>
                   </td>
-                  <td className="px-3 py-3">
-                    <button className="text-left font-bold text-connessia-800" onClick={() => onSelect(lead.id)}>{lead.nombreNegocio}</button>
-                    <p className="text-[11px] text-slate-500">{lead.personaContacto}</p>
+                  <td className="px-3 py-3 align-top">
+                    <button className="break-words text-left font-bold text-connessia-800" onClick={() => onSelect(lead.id)}>{lead.nombreNegocio}</button>
+                    <p className="break-words text-[11px] text-slate-500">{lead.personaContacto}</p>
                   </td>
-                  <td className="px-3 py-3">{lead.sector}</td>
-                  <td className="px-3 py-3">{lead.zona}</td>
-                  <td className="px-3 py-3">{lead.ciudad}</td>
-                  <td className="px-3 py-3">{lead.codigoPostal}</td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 align-top break-words">{lead.sector}</td>
+                  <td className="px-3 py-3 align-top break-words">{lead.zona}</td>
+                  <td className="px-3 py-3 align-top break-words">{lead.ciudad}</td>
+                  <td className="px-3 py-3 align-top whitespace-nowrap">{lead.codigoPostal}</td>
+                  <td className="px-3 py-3 align-top">
                     <div className="flex flex-wrap gap-1">
                       {groups.filter((group) => lead.grupoIds.includes(group.id)).map((group) => (
                         <span key={group.id} className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 whitespace-nowrap">{group.nombre}</span>
                       ))}
                     </div>
                   </td>
-                  <td className="px-3 py-3 whitespace-nowrap">{lead.telefono}</td>
-                  <td className="px-3 py-3">{lead.email}</td>
-                  <td className="px-3 py-3"><Badge value={getLeadStateValue(lead)} /></td>
-                  <td className="px-3 py-3 text-center font-medium">{lead.tieneConsentimientoWhatsapp ? "Sí" : "No"}</td>
-                  <td className="px-3 py-3">{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? (lead.comercialAsignado || "Sin asignar")}</td>
-                  <td className="px-3 py-3 text-xs">{formatDateTime(lead.ultimoContacto)}</td>
+                  <td className="px-3 py-3 align-top whitespace-nowrap">{lead.telefono}</td>
+                  <td className="break-all px-3 py-3 align-top">{lead.email}</td>
+                  <td className="px-3 py-3 align-top"><Badge value={getLeadStateValue(lead)} /></td>
+                  <td className="px-3 py-3 align-top text-center font-medium">{lead.tieneConsentimientoWhatsapp ? "Sí" : "No"}</td>
+                  <td className="px-3 py-3 align-top break-words">{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? (lead.comercialAsignado || "Sin asignar")}</td>
+                  <td className="px-3 py-3 align-top text-xs">{formatDateTime(lead.ultimoContacto)}</td>
                 </tr>
               ))}
             </tbody>
