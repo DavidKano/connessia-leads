@@ -102,6 +102,7 @@ export interface Lead {
   campaignChatArchivedBy?: string;
   seguimiento?: "pendiente" | "en_curso" | "finalizado" | "no_contesta";
   cif?: string;
+  emailAutomationExportedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

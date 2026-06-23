@@ -1,21 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import xlsx from "xlsx";
 
 const XLSX = xlsx.default ?? xlsx;
-
-const inputPath = process.argv[2];
-const outputPath = process.argv[3] || "emails_encontrados_connessia.xlsx";
-
-if (!inputPath) {
-  console.error("Uso: node scripts/find-lead-emails.mjs webs_pendientes_emails_connessia.xlsx");
-  process.exit(1);
-}
-
-if (!fs.existsSync(inputPath)) {
-  console.error(`No existe el archivo: ${inputPath}`);
-  process.exit(1);
-}
 
 const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const obfuscatedEmailRegex =
@@ -196,7 +184,7 @@ async function fetchHtml(url) {
   }
 }
 
-async function findEmailForWebsite(website) {
+export async function findEmailForWebsite(website) {
   const baseUrl = normalizeWebsite(website);
   if (!baseUrl) return { email: "", emails: [], pages: 0, status: "web invalida" };
 
@@ -237,7 +225,7 @@ async function findEmailForWebsite(website) {
   };
 }
 
-function readInputRows(filePath) {
+export function readInputRows(filePath) {
   const workbook = XLSX.read(fs.readFileSync(filePath), { type: "buffer" });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   return XLSX.utils.sheet_to_json(sheet, { defval: "" }).map((row) => {
@@ -251,7 +239,7 @@ function readInputRows(filePath) {
   });
 }
 
-function writeOutputRows(rows, filePath) {
+export function writeOutputRows(rows, filePath) {
   const worksheet = XLSX.utils.json_to_sheet(rows, {
     header: ["id", "Nombre", "Empresa", "Web", "Email", "Emails", "Paginas", "Estado"]
   });
@@ -270,31 +258,50 @@ function writeOutputRows(rows, filePath) {
   fs.writeFileSync(filePath, XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
 }
 
-const inputRows = readInputRows(inputPath).filter((row) => row.id && row.Web);
-const outputRows = [];
+async function main() {
+  const inputPath = process.argv[2];
+  const outputPath = process.argv[3] || "emails_encontrados_connessia.xlsx";
 
-console.log(`Revisando ${inputRows.length} webs...`);
-
-for (const [index, row] of inputRows.entries()) {
-  process.stdout.write(`[${index + 1}/${inputRows.length}] ${row.Empresa || row.Web}... `);
-  const result = await findEmailForWebsite(row.Web);
-  console.log(result.email || result.status);
-
-  outputRows.push({
-    id: row.id,
-    Nombre: row.Nombre,
-    Empresa: row.Empresa,
-    Web: row.Web,
-    Email: result.email,
-    Emails: result.emails.join(", "),
-    Paginas: result.pages,
-    Estado: result.status
-  });
-
-  if ((index + 1) % 25 === 0) {
-    writeOutputRows(outputRows, outputPath);
+  if (!inputPath) {
+    console.error("Uso: node scripts/find-lead-emails.mjs webs_pendientes_emails_connessia.xlsx");
+    process.exit(1);
   }
+
+  if (!fs.existsSync(inputPath)) {
+    console.error(`No existe el archivo: ${inputPath}`);
+    process.exit(1);
+  }
+
+  const inputRows = readInputRows(inputPath).filter((row) => row.id && row.Web);
+  const outputRows = [];
+
+  console.log(`Revisando ${inputRows.length} webs...`);
+
+  for (const [index, row] of inputRows.entries()) {
+    process.stdout.write(`[${index + 1}/${inputRows.length}] ${row.Empresa || row.Web}... `);
+    const result = await findEmailForWebsite(row.Web);
+    console.log(result.email || result.status);
+
+    outputRows.push({
+      id: row.id,
+      Nombre: row.Nombre,
+      Empresa: row.Empresa,
+      Web: row.Web,
+      Email: result.email,
+      Emails: result.emails.join(", "),
+      Paginas: result.pages,
+      Estado: result.status
+    });
+
+    if ((index + 1) % 25 === 0) {
+      writeOutputRows(outputRows, outputPath);
+    }
+  }
+
+  writeOutputRows(outputRows, outputPath);
+  console.log(`Listo: ${path.resolve(outputPath)}`);
 }
 
-writeOutputRows(outputRows, outputPath);
-console.log(`Listo: ${path.resolve(outputPath)}`);
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}

@@ -563,6 +563,32 @@ export function useCrmStore() {
     });
   }
 
+  function markLeadEmailAutomationExported(leadIds: string[]) {
+    const ids = new Set(leadIds);
+    if (ids.size === 0) return;
+
+    const now = new Date().toISOString();
+    const updatedLeads: Lead[] = [];
+    const nextLeads = state.leads.map((lead) => {
+      if (!ids.has(lead.id)) return lead;
+
+      const updatedLead = { ...lead, emailAutomationExportedAt: now, updatedAt: now };
+      updatedLeads.push(updatedLead);
+      return updatedLead;
+    });
+
+    updateState(
+      { ...state, leads: nextLeads },
+      `${updatedLeads.length} lead(s) marcados como exportados para automatizacion.`
+    );
+
+    Promise.allSettled(updatedLeads.map(saveLeadToFirestore)).then((results) => {
+      if (results.some((result) => result.status === "rejected")) {
+        setToast("Exportacion registrada localmente, pero algun lead no se guardo en Firestore. Revisa Firebase.");
+      }
+    });
+  }
+
   function updateSettings(settings: Settings) {
     updateState({ ...state, settings }, "Configuración guardada.");
     configureFirebase(settings.firebaseConfig);
@@ -814,6 +840,7 @@ export function useCrmStore() {
     importLeads,
     updateLeadStatus,
     updateLeadEmails,
+    markLeadEmailAutomationExported,
     updateSettings,
     addDoNotContact,
     upsertTemplate,

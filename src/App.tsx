@@ -59,10 +59,9 @@ const complianceItems = [
   "Confirmo que no se usará WhatsApp para spam."
 ];
 
-async function exportLeadEmailsForAutomation(leads: Lead[]) {
-  const rows = leads
-    .filter((lead) => lead.email.trim())
-    .map((lead) => ({
+async function exportLeadEmailsForAutomation(leads: Lead[], onMarkExported: (leadIds: string[]) => void) {
+  const exportableLeads = leads.filter((lead) => lead.email.trim() && !lead.emailAutomationExportedAt);
+  const rows = exportableLeads.map((lead) => ({
       Nombre: lead.personaContacto.trim() || lead.nombreNegocio.trim(),
       Email: lead.email.trim().toLowerCase(),
       Empresa: lead.nombreNegocio.trim(),
@@ -70,7 +69,7 @@ async function exportLeadEmailsForAutomation(leads: Lead[]) {
     }));
 
   if (rows.length === 0) {
-    alert("No hay leads con email para exportar.");
+    alert("No hay leads con email nuevos para exportar.");
     return;
   }
 
@@ -90,6 +89,7 @@ async function exportLeadEmailsForAutomation(leads: Lead[]) {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Leads email");
   XLSX.writeFile(workbook, "lista_correos_connessia.xlsx");
+  onMarkExported(exportableLeads.map((lead) => lead.id));
 }
 
 async function exportLeadWebsitesForEmailSearch(leads: Lead[]) {
@@ -404,6 +404,7 @@ export default function App() {
                 onSave={store.upsertLead}
                 onDelete={store.deleteLead}
                 onUpdateLeadEmails={store.updateLeadEmails}
+                onMarkEmailAutomationExported={store.markLeadEmailAutomationExported}
                 onSaveGroup={store.upsertLeadGroup}
                 onDeleteGroup={store.deleteLeadGroup}
               />
@@ -890,6 +891,7 @@ function LeadsScreen({
   onSave,
   onDelete,
   onUpdateLeadEmails,
+  onMarkEmailAutomationExported,
   onSaveGroup,
   onDeleteGroup
 }: {
@@ -903,6 +905,7 @@ function LeadsScreen({
   onSave: (lead: Lead) => void;
   onDelete: (id: string) => void;
   onUpdateLeadEmails: (updates: Array<{ id: string; email: string }>) => void;
+  onMarkEmailAutomationExported: (leadIds: string[]) => void;
   onSaveGroup: (group: LeadGroup) => void;
   onDeleteGroup: (id: string) => void;
 }) {
@@ -919,6 +922,13 @@ function LeadsScreen({
   const [editingGroup, setEditingGroup] = useState<LeadGroup | null>(null);
   const [showAutomationModal, setShowAutomationModal] = useState(false);
   const [emailReviewOpen, setEmailReviewOpen] = useState(false);
+  const [localEmailSearchRunning, setLocalEmailSearchRunning] = useState(false);
+  const [localEmailSearchProgress, setLocalEmailSearchProgress] = useState({
+    checked: 0,
+    found: 0,
+    total: 0,
+    status: ""
+  });
   const emailImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -990,6 +1000,82 @@ function LeadsScreen({
     }
   };
 
+  const handleRunLocalEmailSearch = async () => {
+    if (localEmailSearchRunning) return;
+
+    const targets = leadsMissingEmailWithWeb;
+    if (targets.length === 0) return;
+
+    setLocalEmailSearchRunning(true);
+    setLocalEmailSearchProgress({
+      checked: 0,
+      found: 0,
+      total: targets.length,
+      status: "Conectando con el helper local..."
+    });
+
+    let found = 0;
+
+    try {
+      for (let index = 0; index < targets.length; index += 25) {
+        const chunk = targets.slice(index, index + 25);
+        const response = await fetch("http://127.0.0.1:3217/find-emails", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            leads: chunk.map((lead) => ({
+              id: lead.id,
+              web: lead.web,
+              nombreNegocio: lead.nombreNegocio
+            }))
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error("No se pudo conectar con el helper local. Ejecuta npm run emails:helper.");
+        }
+
+        const data = await response.json() as {
+          ok?: boolean;
+          error?: string;
+          updates?: Array<{ id: string; email: string }>;
+        };
+
+        if (!data.ok) {
+          throw new Error(data.error || "El helper local devolvio un error.");
+        }
+
+        const updates = data.updates ?? [];
+        found += updates.length;
+        if (updates.length > 0) {
+          onUpdateLeadEmails(updates);
+        }
+
+        const checked = Math.min(index + chunk.length, targets.length);
+        setLocalEmailSearchProgress({
+          checked,
+          found,
+          total: targets.length,
+          status: `Revisados ${checked} de ${targets.length}`
+        });
+      }
+
+      setLocalEmailSearchProgress({
+        checked: targets.length,
+        found,
+        total: targets.length,
+        status: `Busqueda local terminada. Encontrados: ${found}.`
+      });
+    } catch (error) {
+      setLocalEmailSearchProgress((current) => ({
+        ...current,
+        status: error instanceof Error ? error.message : "Error desconocido."
+      }));
+    } finally {
+      setLocalEmailSearchRunning(false);
+    }
+  };
+
   const handleSort = (key: string) => {
     if (sortKey === key) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -1053,7 +1139,7 @@ function LeadsScreen({
             >
               Revisar emails
             </Button>
-            <Button variant="secondary" icon={<Download size={18} />} onClick={() => exportLeadEmailsForAutomation(leads)}>
+            <Button variant="secondary" icon={<Download size={18} />} onClick={() => exportLeadEmailsForAutomation(leads, onMarkEmailAutomationExported)}>
               Exportar emails
             </Button>
             <Button icon={<Plus size={18} />} onClick={() => setEditing(emptyLead(""))}>Nuevo lead</Button>
@@ -1224,6 +1310,27 @@ function LeadsScreen({
             <p className="text-sm text-slate-500">
               Flujo local sin coste cloud: exporta las webs pendientes, busca los emails en este ordenador e importa el Excel resultante. Los emails existentes no se sobrescriben.
             </p>
+            {localEmailSearchProgress.total > 0 && (
+              <div className="space-y-2 rounded-md border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-semibold text-slate-700">{localEmailSearchProgress.status}</span>
+                  <span className="text-slate-500">
+                    {localEmailSearchProgress.checked} / {localEmailSearchProgress.total}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-100">
+                  <div
+                    className="h-2 rounded-full bg-connessia-600 transition-all"
+                    style={{
+                      width: `${localEmailSearchProgress.total > 0
+                        ? Math.round((localEmailSearchProgress.checked / localEmailSearchProgress.total) * 100)
+                        : 0}%`
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-slate-500">Encontrados: {localEmailSearchProgress.found}</p>
+              </div>
+            )}
             <input
               ref={emailImportInputRef}
               type="file"
@@ -1232,7 +1339,7 @@ function LeadsScreen({
               onChange={(event) => event.target.files?.[0] && handleImportLeadEmailResults(event.target.files[0])}
             />
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="secondary" onClick={() => setEmailReviewOpen(false)}>Cerrar</Button>
               <Button
                 variant="secondary"
@@ -1241,6 +1348,14 @@ function LeadsScreen({
                 disabled={leadsMissingEmailWithWeb.length === 0}
               >
                 Exportar webs
+              </Button>
+              <Button
+                variant="secondary"
+                icon={<RefreshCw size={18} className={localEmailSearchRunning ? "animate-spin" : ""} />}
+                onClick={handleRunLocalEmailSearch}
+                disabled={localEmailSearchRunning || leadsMissingEmailWithWeb.length === 0}
+              >
+                {localEmailSearchRunning ? "Buscando..." : "Buscar en local"}
               </Button>
               <Button
                 icon={<Upload size={18} />}

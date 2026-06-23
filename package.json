@@ -7,6 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "emails:find": "node scripts/find-lead-emails.mjs",
+    "emails:helper": "node scripts/email-helper-server.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "lint": "eslint .",
     "functions:build": "npm --prefix functions run build"
