@@ -528,6 +528,41 @@ export function useCrmStore() {
     });
   }
 
+  function updateLeadEmails(updates: Array<{ id: string; email: string }>) {
+    const normalizedUpdates = new Map(
+      updates
+        .map((update) => [update.id, update.email.trim().toLowerCase()] as const)
+        .filter(([, email]) => Boolean(email))
+    );
+
+    if (normalizedUpdates.size === 0) {
+      setToast("No se encontraron emails para guardar.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const updatedLeads: Lead[] = [];
+    const nextLeads = state.leads.map((lead) => {
+      const email = normalizedUpdates.get(lead.id);
+      if (!email || lead.email.trim()) return lead;
+
+      const updatedLead = { ...lead, email, updatedAt: now };
+      updatedLeads.push(updatedLead);
+      return updatedLead;
+    });
+
+    updateState(
+      { ...state, leads: nextLeads },
+      `${updatedLeads.length} email(s) encontrados y guardados.`
+    );
+
+    Promise.allSettled(updatedLeads.map(saveLeadToFirestore)).then((results) => {
+      if (results.some((result) => result.status === "rejected")) {
+        setToast("Emails guardados localmente, pero alguno no se guardo en Firestore. Revisa Firebase.");
+      }
+    });
+  }
+
   function updateSettings(settings: Settings) {
     updateState({ ...state, settings }, "Configuración guardada.");
     configureFirebase(settings.firebaseConfig);
@@ -778,6 +813,7 @@ export function useCrmStore() {
     deleteLead,
     importLeads,
     updateLeadStatus,
+    updateLeadEmails,
     updateSettings,
     addDoNotContact,
     upsertTemplate,

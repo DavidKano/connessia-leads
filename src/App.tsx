@@ -92,6 +92,67 @@ async function exportLeadEmailsForAutomation(leads: Lead[]) {
   XLSX.writeFile(workbook, "lista_correos_connessia.xlsx");
 }
 
+async function exportLeadWebsitesForEmailSearch(leads: Lead[]) {
+  const rows = leads
+    .filter((lead) => !lead.email.trim() && lead.web.trim())
+    .map((lead) => ({
+      id: lead.id,
+      Nombre: lead.personaContacto.trim() || lead.nombreNegocio.trim(),
+      Empresa: lead.nombreNegocio.trim(),
+      Web: lead.web.trim()
+    }));
+
+  if (rows.length === 0) {
+    alert("No hay leads sin email y con web para exportar.");
+    return;
+  }
+
+  const XLSX = await import("xlsx");
+  const worksheet = XLSX.utils.json_to_sheet(rows, {
+    header: ["id", "Nombre", "Empresa", "Web"]
+  });
+  worksheet["!cols"] = [
+    { wch: 38 },
+    { wch: 28 },
+    { wch: 34 },
+    { wch: 48 }
+  ];
+  worksheet["!autofilter"] = { ref: `A1:D${rows.length + 1}` };
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Webs pendientes");
+  XLSX.writeFile(workbook, "webs_pendientes_emails_connessia.xlsx");
+}
+
+function normalizeSpreadsheetKey(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+async function readLeadEmailResultsFile(file: File) {
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+
+  return rows
+    .map((row) => {
+      const normalized = Object.fromEntries(
+        Object.entries(row).map(([key, value]) => [normalizeSpreadsheetKey(key), String(value).trim()])
+      );
+
+      return {
+        id: normalized.id || normalized.lead_id || normalized.leadid,
+        email: (normalized.email || normalized.correo || normalized.mail || "").toLowerCase()
+      };
+    })
+    .filter((row) => row.id && row.email.includes("@"));
+}
+
 function emptyLead(assignedTo = ""): Lead {
   const now = new Date().toISOString();
   return {
@@ -342,6 +403,7 @@ export default function App() {
                 onSelect={setSelectedLeadId}
                 onSave={store.upsertLead}
                 onDelete={store.deleteLead}
+                onUpdateLeadEmails={store.updateLeadEmails}
                 onSaveGroup={store.upsertLeadGroup}
                 onDeleteGroup={store.deleteLeadGroup}
               />
@@ -827,6 +889,7 @@ function LeadsScreen({
   onSelect,
   onSave,
   onDelete,
+  onUpdateLeadEmails,
   onSaveGroup,
   onDeleteGroup
 }: {
@@ -839,6 +902,7 @@ function LeadsScreen({
   onSelect: (id: string) => void;
   onSave: (lead: Lead) => void;
   onDelete: (id: string) => void;
+  onUpdateLeadEmails: (updates: Array<{ id: string; email: string }>) => void;
   onSaveGroup: (group: LeadGroup) => void;
   onDeleteGroup: (id: string) => void;
 }) {
@@ -854,6 +918,8 @@ function LeadsScreen({
   const [editing, setEditing] = useState<Lead | null>(null);
   const [editingGroup, setEditingGroup] = useState<LeadGroup | null>(null);
   const [showAutomationModal, setShowAutomationModal] = useState(false);
+  const [emailReviewOpen, setEmailReviewOpen] = useState(false);
+  const emailImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     localStorage.setItem("leads_filter_query", query);
@@ -913,6 +979,17 @@ function LeadsScreen({
     );
   });
 
+  const leadsMissingEmailWithWeb = leads.filter((lead) => !lead.email.trim() && lead.web.trim());
+  const leadsMissingEmailWithoutWeb = leads.filter((lead) => !lead.email.trim() && !lead.web.trim());
+
+  const handleImportLeadEmailResults = async (file: File) => {
+    const updates = await readLeadEmailResultsFile(file);
+    onUpdateLeadEmails(updates);
+    if (emailImportInputRef.current) {
+      emailImportInputRef.current.value = "";
+    }
+  };
+
   const handleSort = (key: string) => {
     if (sortKey === key) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -968,6 +1045,13 @@ function LeadsScreen({
           <div className="flex gap-2">
             <Button variant="secondary" icon={<MessageCircle size={18} />} onClick={() => setShowAutomationModal(true)}>
               Automatización Whatsapp
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<RefreshCw size={18} />}
+              onClick={() => setEmailReviewOpen(true)}
+            >
+              Revisar emails
             </Button>
             <Button variant="secondary" icon={<Download size={18} />} onClick={() => exportLeadEmailsForAutomation(leads)}>
               Exportar emails
@@ -1118,6 +1202,55 @@ function LeadsScreen({
             setEditing(null);
           }}
         />
+      )}
+      {emailReviewOpen && (
+        <Modal title="Revisar emails de leads" onClose={() => setEmailReviewOpen(false)}>
+          <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-md border border-slate-200 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Revisables</p>
+                <p className="mt-1 text-2xl font-bold text-slate-950">{leadsMissingEmailWithWeb.length}</p>
+              </div>
+              <div className="rounded-md border border-slate-200 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Sin web</p>
+                <p className="mt-1 text-2xl font-bold text-slate-950">{leadsMissingEmailWithoutWeb.length}</p>
+              </div>
+              <div className="rounded-md border border-slate-200 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Con email</p>
+                <p className="mt-1 text-2xl font-bold text-slate-950">{leads.filter((lead) => lead.email.trim()).length}</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-500">
+              Flujo local sin coste cloud: exporta las webs pendientes, busca los emails en este ordenador e importa el Excel resultante. Los emails existentes no se sobrescriben.
+            </p>
+            <input
+              ref={emailImportInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(event) => event.target.files?.[0] && handleImportLeadEmailResults(event.target.files[0])}
+            />
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setEmailReviewOpen(false)}>Cerrar</Button>
+              <Button
+                variant="secondary"
+                icon={<Download size={18} />}
+                onClick={() => exportLeadWebsitesForEmailSearch(leads)}
+                disabled={leadsMissingEmailWithWeb.length === 0}
+              >
+                Exportar webs
+              </Button>
+              <Button
+                icon={<Upload size={18} />}
+                onClick={() => emailImportInputRef.current?.click()}
+              >
+                Importar emails
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
       {editingGroup && (
         <LeadGroupFormModal

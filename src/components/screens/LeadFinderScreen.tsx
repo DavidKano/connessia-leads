@@ -31,6 +31,7 @@ interface FinderLead {
   localidad: string;
   provincia: string;
   telefono: string;
+  email: string;
   web: string;
   tipo: string;
 }
@@ -57,23 +58,31 @@ function normalizePhoneValue(value: string) {
   return (value || "").replace(/[^\d+]/g, "");
 }
 
+function normalizeEmailValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function sameFinderLead(a: FinderLead, b: FinderLead) {
   const phoneA = normalizePhoneValue(a.telefono);
   const phoneB = normalizePhoneValue(b.telefono);
   if (phoneA && phoneB && phoneA === phoneB) return true;
+  if (a.email && b.email && normalizeEmailValue(a.email) === normalizeEmailValue(b.email)) return true;
   if (a.web && b.web && a.web.toLowerCase() === b.web.toLowerCase()) return true;
   return normalizeText(a.nombre) === normalizeText(b.nombre) && normalizeText(a.direccion) === normalizeText(b.direccion);
 }
 
 function isKnownLead(finderLead: FinderLead, existingLeads: Lead[]) {
   const phone = normalizePhoneValue(finderLead.telefono || "");
+  const email = normalizeEmailValue(finderLead.email || "");
   const web = (finderLead.web || "").toLowerCase();
   const name = normalizeText(finderLead.nombre || "");
   const address = normalizeText(finderLead.direccion || "");
 
   return (existingLeads || []).some((lead) => {
     const existingPhone = normalizePhoneValue(lead.telefono || "");
+    const existingEmail = normalizeEmailValue(lead.email || "");
     if (phone && existingPhone && phone === existingPhone) return true;
+    if (email && existingEmail && email === existingEmail) return true;
     if (web && lead.web && lead.web.toLowerCase() === web) return true;
     return normalizeText(lead.nombreNegocio || "") === name && normalizeText(lead.direccion || "") === address;
   });
@@ -377,6 +386,7 @@ export function LeadFinderScreen({ existingLeads, importLeads, setToast }: LeadF
       localidad: localidad,
       provincia: provincia,
       telefono: place.formatted_phone_number || '',
+      email: normalizeEmailValue(place.extractedEmail || ''),
       web: place.website || '',
       tipo: tipo || ''
     };
@@ -408,7 +418,7 @@ export function LeadFinderScreen({ existingLeads, importLeads, setToast }: LeadF
         nombreNegocio: fLead.nombre,
         personaContacto: "",
         telefono: normalizePhoneValue(fLead.telefono),
-        email: "",
+        email: fLead.email,
         direccion: fLead.direccion,
         ciudad: fLead.localidad,
         codigoPostal: fLead.cp,
@@ -628,7 +638,7 @@ export function LeadFinderScreen({ existingLeads, importLeads, setToast }: LeadF
               )}
             </div>
             <div className="overflow-x-auto table-scroll">
-              <table className="w-full min-w-[600px] text-left text-sm">
+              <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                    <tr>
                     <th className="px-4 py-3 w-10">
@@ -649,6 +659,7 @@ export function LeadFinderScreen({ existingLeads, importLeads, setToast }: LeadF
                       </button>
                     </th>
                     <th>Web</th>
+                    <th>Email</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -675,11 +686,12 @@ export function LeadFinderScreen({ existingLeads, importLeads, setToast }: LeadF
                           <span className="opacity-30 italic">N/A</span>
                         )}
                       </td>
+                      <td>{lead.email || <span className="opacity-30 italic">N/A</span>}</td>
                     </tr>
                   ))}
                   {leads.length === 0 && !isSearching && (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center">
+                      <td colSpan={7} className="py-12 text-center">
                         <div className="flex flex-col items-center justify-center text-slate-400">
                           <Globe size={48} className="mb-2 opacity-20" />
                           <p>Inicia una búsqueda para ver los resultados aquí.</p>
