@@ -378,6 +378,14 @@ export function LeadFinderScreen({ existingLeads, importLeads, setToast }: LeadF
       });
     }
 
+    // Filtrar estrictamente por el código postal buscado si Google Maps devuelve uno diferente
+    const cleanSearchCP = postalCode.trim().replace(/\D/g, '');
+    const cleanCp = cp.trim().replace(/\D/g, '');
+    if (cleanCp && cleanCp !== cleanSearchCP) {
+      console.log(`[LeadFinder] Omitiendo negocio "${place.name}" porque su código postal (${cleanCp}) no coincide con el buscado (${cleanSearchCP})`);
+      return;
+    }
+
     const newLead: FinderLead = {
       id: crypto.randomUUID(),
       nombre: place.name || '',
