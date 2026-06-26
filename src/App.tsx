@@ -76,7 +76,8 @@ type LeadColumnKey =
   | "grupos"
   | "telefono"
   | "email"
-  | "estado"
+  | "estadoEnvios"
+  | "estadoComercial"
   | "consentimiento"
   | "comercial"
   | "contacto";
@@ -91,7 +92,8 @@ const leadColumnOrder: LeadColumnKey[] = [
   "grupos",
   "telefono",
   "email",
-  "estado",
+  "estadoEnvios",
+  "estadoComercial",
   "consentimiento",
   "comercial",
   "contacto"
@@ -107,7 +109,8 @@ const defaultLeadColumnWidths: Record<LeadColumnKey, number> = {
   grupos: 170,
   telefono: 130,
   email: 270,
-  estado: 120,
+  estadoEnvios: 140,
+  estadoComercial: 140,
   consentimiento: 115,
   comercial: 160,
   contacto: 150
@@ -1084,7 +1087,7 @@ function LeadsScreen({
 
     return (
       text.includes(query.toLowerCase()) &&
-      (!status || getLeadStateValue(lead) === status) &&
+      (!status || lead.estado === status || lead.contactadoResultado === status) &&
       (!sector || lead.sector === sector) &&
       (!city || lead.ciudad === city) &&
       (!groupId || (groupId === "no_asignado" ? lead.grupoIds.length === 0 : lead.grupoIds.includes(groupId))) &&
@@ -1209,7 +1212,8 @@ function LeadsScreen({
         break;
       case "telefono": valA = a.telefono; valB = b.telefono; break;
       case "email": valA = a.email; valB = b.email; break;
-      case "estado": valA = a.estado; valB = b.estado; break;
+      case "estado": valA = a.estado || ""; valB = b.estado || ""; break;
+      case "contactadoResultado": valA = a.contactadoResultado || ""; valB = b.contactadoResultado || ""; break;
       case "consentimiento": valA = a.tieneConsentimientoWhatsapp ? 1 : 0; valB = b.tieneConsentimientoWhatsapp ? 1 : 0; break;
       case "comercial": 
         valA = users.find(u => u.uid === a.comercialAsignado)?.nombre ?? a.comercialAsignado;
@@ -1336,7 +1340,10 @@ function LeadsScreen({
           </select>
           <select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">Estados</option>
-            {Array.from(new Set(leads.map((lead) => getLeadStateValue(lead)))).map((item) => (
+            {Array.from(new Set([
+              ...leads.map((l) => l.estado || "nuevo"),
+              ...leads.map((l) => l.contactadoResultado).filter(Boolean)
+            ] as string[])).map((item) => (
               <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
             ))}
           </select>
@@ -1382,7 +1389,8 @@ function LeadsScreen({
                 {renderLeadHeader("grupos", "Grupos", "grupos")}
                 {renderLeadHeader("telefono", "Telefono", "telefono")}
                 {renderLeadHeader("email", "Email", "email")}
-                {renderLeadHeader("estado", "Estado", "estado")}
+                {renderLeadHeader("estadoEnvios", "Estado Envíos", "estado")}
+                {renderLeadHeader("estadoComercial", "Estado Comercial", "contactadoResultado")}
                 {renderLeadHeader("consentimiento", <>Consen.<br />Comerc.</>, "consentimiento", "text-center")}
                 {renderLeadHeader("comercial", "Comercial", "comercial")}
                 {renderLeadHeader("contacto", "Ult. contacto", "contacto")}
@@ -1418,7 +1426,8 @@ function LeadsScreen({
                   </td>
                   <td className="px-3 py-3 align-top whitespace-nowrap">{lead.telefono}</td>
                   <td className="break-all px-3 py-3 align-top">{lead.email}</td>
-                  <td className="px-3 py-3 align-top"><Badge value={getLeadStateValue(lead)} /></td>
+                  <td className="px-3 py-3 align-top"><Badge value={lead.estado || "nuevo"} /></td>
+                  <td className="px-3 py-3 align-top"><Badge value={lead.contactadoResultado || "pendiente"} /></td>
                   <td className="px-3 py-3 align-top text-center font-medium">{lead.tieneConsentimientoWhatsapp ? "Sí" : "No"}</td>
                   <td className="px-3 py-3 align-top break-words">{users.find((user) => user.uid === lead.comercialAsignado)?.nombre ?? (lead.comercialAsignado || "Sin asignar")}</td>
                   <td className="px-3 py-3 align-top text-xs">{formatDateTime(lead.ultimoContacto)}</td>
@@ -1973,65 +1982,56 @@ function LeadFormModal({
           <input className={inputClass} value={draft.direccion} onChange={(event) => update("direccion", event.target.value)} />
         </label>
         <label>
-          <span className="mb-1 block text-sm font-semibold text-slate-700">Estado</span>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Estado Envíos WhatsApp</span>
           <select
             className={inputClass}
-            value={getLeadStateValue(draft) ?? "nuevo"}
-            onChange={(event) => {
-              const val = event.target.value;
-              const now = new Date().toISOString();
-              if (val === "dudoso") {
-                setDraft((current) => ({
-                  ...current,
-                  estado: "dudoso",
-                  contactadoResultado: "dudoso_comercial",
-                  contactadoAt: current.contactadoAt ?? now,
-                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
-                  proximaAccion: "Comercial debe contactar"
-                }));
-              } else if (val === "interesado") {
-                setDraft((current) => ({
-                  ...current,
-                  estado: "interesado",
-                  contactadoResultado: "interesado_comercial",
-                  contactadoAt: current.contactadoAt ?? now,
-                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
-                  proximaAccion: "Comercial debe contactar"
-                }));
-              } else if (val === "no_interesa") {
-                setDraft((current) => ({
-                  ...current,
-                  estado: "no_interesado",
-                  contactadoResultado: "no_interesa",
-                  contactadoAt: current.contactadoAt ?? now,
-                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
-                  proximaAccion: "No contactar salvo nueva solicitud"
-                }));
-              } else {
-                setDraft((current) => ({
-                  ...current,
-                  estado: val as any,
-                  contactadoResultado: undefined,
-                  contactadoAt: undefined,
-                  contactadoBy: undefined
-                }));
-              }
-            }}
+            value={draft.estado || "nuevo"}
+            onChange={(event) => update("estado", event.target.value as any)}
           >
             <option value="nuevo">Nuevo</option>
             <option value="pendiente_consentimiento">Pendiente consentimiento</option>
             <option value="consentimiento_obtenido">Consentimiento obtenido</option>
             <option value="campaña_enviada">En campaña</option>
             <option value="sin_respuesta">Sin respuesta</option>
-            <option value="interesado">Interesado</option>
-            <option value="dudoso">Dudoso</option>
-            <option value="no_interesa">No interesa</option>
-            <option value="demo_agendada">Demo agendada</option>
-            <option value="convertido">Convertido</option>
-            <option value="baja">Baja</option>
+            <option value="primer_envio">Primer envío WhatsApp</option>
+            <option value="segundo_envio">Segundo envío WhatsApp</option>
+            <option value="respuesta_ambigua">Respuesta ambigua</option>
             <option value="bloqueado">Bloqueado</option>
             <option value="error_envio">Error envío</option>
-            <option value="respuesta_ambigua">Respuesta ambigua</option>
+            <option value="baja">Baja</option>
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-sm font-semibold text-slate-700">Estado Comercial</span>
+          <select
+            className={inputClass}
+            value={draft.contactadoResultado || ""}
+            onChange={(event) => {
+              const val = event.target.value;
+              const now = new Date().toISOString();
+              if (val) {
+                setDraft((current) => ({
+                  ...current,
+                  contactadoResultado: val as any,
+                  contactadoAt: current.contactadoAt ?? now,
+                  contactadoBy: current.contactadoBy ?? (users.find(u => u.uid === current.comercialAsignado)?.uid ?? users[0]?.uid),
+                  proximaAccion: val === "no_interesa" ? "No contactar salvo nueva solicitud" : "Comercial debe contactar"
+                }));
+              } else {
+                setDraft((current) => ({
+                  ...current,
+                  contactadoResultado: undefined,
+                  contactadoAt: undefined,
+                  contactadoBy: undefined,
+                  proximaAccion: undefined
+                }));
+              }
+            }}
+          >
+            <option value="">Sin resultado / Pendiente</option>
+            <option value="interesado_comercial">Interesado</option>
+            <option value="dudoso_comercial">Dudoso</option>
+            <option value="no_interesa">No interesa</option>
           </select>
         </label>
         <label>
@@ -5339,6 +5339,22 @@ function getLeadStateValue(lead: Lead) {
   return lead.estado;
 }
 
+function getLeadEstadoLabel(lead: Lead) {
+  if (lead.estado === "campaña_enviada") return "En campaña";
+  if (lead.estado === "sin_respuesta") return "Sin respuesta";
+  if (lead.estado === "primer_envio") return "Primer envío WhatsApp";
+  if (lead.estado === "segundo_envio") return "Segundo envío WhatsApp";
+  return String(lead.estado || "nuevo").replaceAll("_", " ");
+}
+
+function getLeadComercialLabel(lead: Lead) {
+  if (!lead.contactadoResultado) return "pendiente";
+  if (lead.contactadoResultado === "interesado_comercial") return "Interesado";
+  if (lead.contactadoResultado === "dudoso_comercial") return "Dudoso";
+  if (lead.contactadoResultado === "no_interesa") return "No interesa";
+  return String(lead.contactadoResultado).replaceAll("_", " ");
+}
+
 function MultiSelectDropdown({
   label,
   options,
@@ -5626,62 +5642,57 @@ function InProgressLeadEditSheet({
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Estado</label>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Estado Envíos WhatsApp</label>
                 <select
                   className={inputClass}
-                  value={getLeadStateValue(editForm) ?? "nuevo"}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "dudoso") {
-                      setEditForm({
-                        ...editForm,
-                        estado: "dudoso",
-                        contactadoResultado: "dudoso_comercial"
-                      });
-                    } else if (val === "interesado") {
-                      setEditForm({
-                        ...editForm,
-                        estado: "interesado",
-                        contactadoResultado: "interesado_comercial"
-                      });
-                    } else if (val === "no_interesa") {
-                      setEditForm({
-                        ...editForm,
-                        estado: "no_interesado",
-                        contactadoResultado: "no_interesa"
-                      });
-                    } else if (val === "campaña_enviada") {
-                      setEditForm({
-                        ...editForm,
-                        estado: "campaña_enviada",
-                        contactadoResultado: undefined
-                      });
-                    } else if (val === "sin_respuesta") {
-                      setEditForm({
-                        ...editForm,
-                        estado: "sin_respuesta",
-                        contactadoResultado: undefined
-                      });
-                    } else {
-                      setEditForm({
-                        ...editForm,
-                        estado: val as any,
-                        contactadoResultado: undefined
-                      });
-                    }
-                  }}
+                  value={editForm.estado || "nuevo"}
+                  onChange={(e) => setEditForm({ ...editForm, estado: e.target.value as any })}
                 >
                   <option value="nuevo">Nuevo</option>
                   <option value="pendiente_consentimiento">Pendiente consentimiento</option>
                   <option value="consentimiento_obtenido">Consentimiento obtenido</option>
                   <option value="campaña_enviada">En campaña</option>
                   <option value="sin_respuesta">Sin respuesta</option>
-                  <option value="interesado">Interesado</option>
-                  <option value="dudoso">Dudoso</option>
-                  <option value="no_interesa">No interesa</option>
-                  <option value="demo_agendada">Demo agendada</option>
-                  <option value="convertido">Convertido</option>
+                  <option value="primer_envio">Primer envío WhatsApp</option>
+                  <option value="segundo_envio">Segundo envío WhatsApp</option>
+                  <option value="respuesta_ambigua">Respuesta ambigua</option>
+                  <option value="bloqueado">Bloqueado</option>
+                  <option value="error_envio">Error envío</option>
                   <option value="baja">Baja</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Estado Comercial</label>
+                <select
+                  className={inputClass}
+                  value={editForm.contactadoResultado || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const now = new Date().toISOString();
+                    if (val) {
+                      setEditForm({
+                        ...editForm,
+                        contactadoResultado: val as any,
+                        contactadoAt: editForm.contactadoAt ?? now,
+                        contactadoBy: editForm.contactadoBy ?? (users.find(u => u.uid === editForm.comercialAsignado)?.uid ?? users[0]?.uid),
+                        proximaAccion: val === "no_interesa" ? "No contactar salvo nueva solicitud" : "Comercial debe contactar"
+                      });
+                    } else {
+                      setEditForm({
+                        ...editForm,
+                        contactadoResultado: undefined,
+                        contactadoAt: undefined,
+                        contactadoBy: undefined,
+                        proximaAccion: undefined
+                      });
+                    }
+                  }}
+                >
+                  <option value="">Sin resultado / Pendiente</option>
+                  <option value="interesado_comercial">Interesado</option>
+                  <option value="dudoso_comercial">Dudoso</option>
+                  <option value="no_interesa">No interesa</option>
                 </select>
               </div>
 
@@ -6008,8 +6019,12 @@ function InProgressLeadsScreen({
     const text = `${lead.nombreNegocio} ${lead.telefono} ${lead.ciudad} ${lead.zona} ${lead.sector || ""}`.toLowerCase();
     const matchesQuery = text.includes(query.toLowerCase());
 
-    const stateValue = getLeadStateValue(lead);
-    const matchesState = selectedStates.length === 0 || selectedStates.includes(stateValue);
+    const matchesState = selectedStates.length === 0 || selectedStates.some(val => {
+      if (val === "interesado") return lead.contactadoResultado === "interesado_comercial";
+      if (val === "dudoso") return lead.contactadoResultado === "dudoso_comercial" || lead.estado === "dudoso";
+      if (val === "no_interesa") return lead.contactadoResultado === "no_interesa";
+      return lead.estado === val;
+    });
 
     const segValue = lead.seguimiento ?? "pendiente";
     const matchesSeguimiento = selectedSeguimientos.length === 0 || selectedSeguimientos.includes(segValue);
@@ -6053,9 +6068,13 @@ function InProgressLeadsScreen({
         valA = a.zona;
         valB = b.zona;
         break;
-      case "estado":
-        valA = getLeadStateLabel(a);
-        valB = getLeadStateLabel(b);
+      case "estadoEnvio":
+        valA = getLeadEstadoLabel(a);
+        valB = getLeadEstadoLabel(b);
+        break;
+      case "estadoComercial":
+        valA = getLeadComercialLabel(a);
+        valB = getLeadComercialLabel(b);
         break;
       case "seguimiento":
         valA = a.seguimiento ?? "pendiente";
@@ -6114,14 +6133,25 @@ function InProgressLeadsScreen({
     return "bg-slate-50 text-slate-700 border-slate-200";
   };
 
-  const getEstadoBadgeColor = (lead: Lead) => {
-    const val = getLeadStateValue(lead);
-    if (val === "interesado") return "bg-emerald-50 text-emerald-800 border-emerald-200";
-    if (val === "dudoso") return "bg-amber-50 text-amber-800 border-amber-200";
-    if (val === "no_interesa") return "bg-red-50 text-red-800 border-red-200";
+  const getEstadoEnvioBadgeColor = (lead: Lead) => {
+    const val = lead.estado || "nuevo";
+    if (val === "nuevo") return "bg-slate-50 text-slate-700 border-slate-200";
+    if (val === "pendiente_consentimiento") return "bg-amber-50 text-amber-800 border-amber-200";
+    if (val === "consentimiento_obtenido") return "bg-emerald-50 text-emerald-800 border-emerald-200";
     if (val === "campaña_enviada") return "bg-blue-50 text-blue-800 border-blue-200";
+    if (val === "sin_respuesta") return "bg-slate-50 text-slate-700 border-slate-200";
     if (val === "primer_envio") return "bg-blue-50 text-blue-800 border-blue-200";
     if (val === "segundo_envio") return "bg-indigo-50 text-indigo-800 border-indigo-200";
+    if (val === "respuesta_ambigua") return "bg-orange-50 text-orange-800 border-orange-200";
+    if (val === "bloqueado" || val === "error_envio" || val === "baja") return "bg-red-50 text-red-800 border-red-200";
+    return "bg-slate-50 text-slate-700 border-slate-200";
+  };
+
+  const getEstadoComercialBadgeColor = (lead: Lead) => {
+    const val = lead.contactadoResultado;
+    if (val === "interesado_comercial") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+    if (val === "dudoso_comercial") return "bg-amber-50 text-amber-800 border-amber-200";
+    if (val === "no_interesa") return "bg-red-50 text-red-800 border-red-200";
     return "bg-slate-50 text-slate-700 border-slate-200";
   };
 
@@ -6214,9 +6244,14 @@ function InProgressLeadsScreen({
                     Último Contacto {getSortIcon("ultimoContacto")}
                   </div>
                 </th>
-                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("estado")}>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("estadoEnvio")}>
                   <div className="flex items-center gap-1.5">
-                    Estado {getSortIcon("estado")}
+                    Estado Envíos {getSortIcon("estadoEnvio")}
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("estadoComercial")}>
+                  <div className="flex items-center gap-1.5">
+                    Estado Comercial {getSortIcon("estadoComercial")}
                   </div>
                 </th>
                 <th className="px-4 py-3.5 font-bold cursor-pointer hover:bg-slate-100 hover:text-slate-900" onClick={() => handleSort("seguimiento")}>
@@ -6250,8 +6285,13 @@ function InProgressLeadsScreen({
                     {lead.ultimoContacto ? formatDateTime(lead.ultimoContacto) : "Sin contacto"}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getEstadoBadgeColor(lead)}`}>
-                      {getLeadStateLabel(lead)}
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getEstadoEnvioBadgeColor(lead)}`}>
+                      {getLeadEstadoLabel(lead)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getEstadoComercialBadgeColor(lead)}`}>
+                      {getLeadComercialLabel(lead)}
                     </span>
                   </td>
                   <td className="px-4 py-3">
