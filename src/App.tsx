@@ -918,7 +918,7 @@ function LeadMiniTable({ leads }: { leads: Lead[] }) {
             <th>Sector</th>
             <th>Zona</th>
             <th>Consentimiento</th>
-            <th>Estado</th>
+            <th>Estado Envíos</th>
             <th>Próxima acción</th>
           </tr>
         </thead>
